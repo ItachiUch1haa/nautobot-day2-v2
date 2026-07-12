@@ -13,23 +13,16 @@ Fixes for Nautobot 3.1.3:
 
 import sys
 import argparse
-import requests
 import os
-from dotenv import load_dotenv
 from tabulate import tabulate
 
-load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env'))
-
-URL     = os.getenv('NAUTOBOT_URL')
-TOKEN   = os.getenv('NAUTOBOT_TOKEN')
-HEADERS = {
-    'Authorization': f'Token {TOKEN}',
-    'Content-Type':  'application/json',
-    'Accept':        'application/json'
-}
-
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from vendor_matrix import get_all_manufacturers, get_all_platforms
+from client import NautobotClient
+
+client = NautobotClient(env_file=os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env'))
+URL = client.url
 
 # ── Static definitions ────────────────────────────────────────────────────────
 
@@ -93,57 +86,23 @@ CUSTOM_FIELD = {
 
 
 # ── API helpers ───────────────────────────────────────────────────────────────
+# Thin wrappers around the shared NautobotClient (nautobot_day2/client.py) —
+# kept as module-level functions so the create_* functions below don't need
+# to change at all.
 
 def api_get(endpoint, params=None):
-    r = requests.get(
-        f'{URL}/api/{endpoint}/',
-        headers=HEADERS,
-        params=params,
-        timeout=10
-    )
+    r = client.get(endpoint, params=params)
     r.raise_for_status()
     return r.json()
 
 def api_post(endpoint, data):
-    r = requests.post(
-        f'{URL}/api/{endpoint}/',
-        headers=HEADERS,
-        json=data,
-        timeout=10
-    )
-    return r
+    return client.post(endpoint, data)
 
 def exists(endpoint, name):
-    """
-    Check if an object exists by name.
-    Falls back to fetching all results and searching if name filter
-    returns 400 (not supported on this endpoint).
-    """
-    r = requests.get(
-        f'{URL}/api/{endpoint}/',
-        headers=HEADERS,
-        params={'name': name},
-        timeout=10
-    )
-    if r.status_code == 400:
-        # name filter not supported — fetch all and match manually
-        r = requests.get(
-            f'{URL}/api/{endpoint}/',
-            headers=HEADERS,
-            params={'limit': 200},
-            timeout=10
-        )
-    if not r.ok:
-        return False, None
-    data = r.json()
-    for obj in data.get('results', []):
-        if obj.get('name') == name:
-            return True, obj
-    return False, None
+    return client.find_by_name(endpoint, name)
 
 def get_id(endpoint, name):
-    found, obj = exists(endpoint, name=name)
-    return obj['id'] if found else None
+    return client.get_id_by_name(endpoint, name)
 
 def get_role_content_types():
     """
@@ -334,12 +293,7 @@ def create_custom_field(dry_run, results):
     print("\n── Custom field (industry_vertical) ─────────────────")
 
     # custom-fields does not support name filter — fetch all and search
-    r = requests.get(
-        f'{URL}/api/extras/custom-fields/',
-        headers=HEADERS,
-        params={'limit': 200},
-        timeout=10
-    )
+    r = client.get('extras/custom-fields', params={'limit': 200})
     existing_names = [cf['key'] for cf in r.json().get('results', [])]
 
     if CUSTOM_FIELD['name'] in existing_names:

@@ -18,54 +18,36 @@ import csv
 import json
 import argparse
 import ipaddress
-import requests
 from datetime import datetime
-from dotenv import load_dotenv
 from tabulate import tabulate
 
-load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env'))
+LAB_DIR = os.path.dirname(os.path.abspath(__file__))
+LAB_MANIFESTS_DIR = os.path.join(LAB_DIR, 'manifests')
 
-URL     = os.getenv('NAUTOBOT_URL')
-TOKEN   = os.getenv('NAUTOBOT_TOKEN')
-HEADERS = {
-    'Authorization': f'Token {TOKEN}',
-    'Content-Type':  'application/json',
-    'Accept':        'application/json'
-}
-
-LAB_MANIFESTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'manifests')
-
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, LAB_DIR)
+sys.path.insert(0, os.path.dirname(LAB_DIR))
 from vendor_matrix import VENDOR_MATRIX
+from client import NautobotClient
+
+client = NautobotClient(env_file=os.path.join(LAB_DIR, '.env'))
+URL = client.url
 
 # Global cache — populated once at startup
 _C = {}
 
 
 # ── API helpers ───────────────────────────────────────────────────────────────
+# Thin wrappers around the shared NautobotClient so the lookups below (which
+# call these by name) don't need to change.
 
 def api_get_all(endpoint, params=None):
-    """Fetch all results handling pagination."""
-    results = []
-    url     = f'{URL}/api/{endpoint}/'
-    p       = dict(params or {})
-    p['limit'] = 200
-    while url:
-        r = requests.get(url, headers=HEADERS, params=p, timeout=15)
-        r.raise_for_status()
-        data = r.json()
-        results.extend(data.get('results', []))
-        url = data.get('next')
-        p   = {}
-    return results
+    return client.get_all(endpoint, params=params)
 
 def api_post(endpoint, data):
-    return requests.post(
-        f'{URL}/api/{endpoint}/', headers=HEADERS, json=data, timeout=15)
+    return client.post(endpoint, data)
 
 def api_patch(endpoint, obj_id, data):
-    return requests.patch(
-        f'{URL}/api/{endpoint}/{obj_id}/', headers=HEADERS, json=data, timeout=15)
+    return client.patch(f'{endpoint}/{obj_id}', data)
 
 
 # ── Startup cache ─────────────────────────────────────────────────────────────
@@ -157,8 +139,7 @@ def get_or_create_location(name, type_name, parent_id, status_id, dry_run):
         return None, f"FAILED: location type '{type_name}' not in Nautobot"
 
     # Search by name — verify location_type matches
-    r = requests.get(f'{URL}/api/dcim/locations/', headers=HEADERS,
-                     params={'name': name, 'limit': 50}, timeout=15)
+    r = client.get('dcim/locations', params={'name': name, 'limit': 50})
     if r.ok:
         for obj in r.json().get('results', []):
             if (obj.get('name') == name and
@@ -232,11 +213,9 @@ def get_or_create_device_type(model, vendor_slug, dry_run, dt_cache):
         return None, f"FAILED: manufacturer '{vendor_label}' not found"
 
     # Search by model — model filter may not be supported, try then fall back
-    r = requests.get(f'{URL}/api/dcim/device-types/', headers=HEADERS,
-                     params={'model': model, 'limit': 50}, timeout=15)
+    r = client.get('dcim/device-types', params={'model': model, 'limit': 50})
     if r.status_code == 400:
-        r = requests.get(f'{URL}/api/dcim/device-types/', headers=HEADERS,
-                         params={'limit': 200}, timeout=15)
+        r = client.get('dcim/device-types', params={'limit': 200})
     if r.ok:
         for obj in r.json().get('results', []):
             if obj.get('model') == model:
@@ -296,11 +275,9 @@ def get_or_create_prefix(ip_with_prefix, namespace_id, tenant_id, status_id, dry
         return pfx_cache[cache_key], 'cached'
 
     # Search existing
-    r = requests.get(f'{URL}/api/ipam/prefixes/', headers=HEADERS,
-                     params={'prefix': prefix_str, 'limit': 50}, timeout=15)
+    r = client.get('ipam/prefixes', params={'prefix': prefix_str, 'limit': 50})
     if r.status_code == 400:
-        r = requests.get(f'{URL}/api/ipam/prefixes/', headers=HEADERS,
-                         params={'limit': 200}, timeout=15)
+        r = client.get('ipam/prefixes', params={'limit': 200})
     if r.ok:
         for obj in r.json().get('results', []):
             if (obj.get('prefix') == prefix_str and
@@ -332,11 +309,9 @@ def get_or_create_prefix(ip_with_prefix, namespace_id, tenant_id, status_id, dry
 def get_or_create_ip(address, namespace_id, tenant_id, status_id, prefix_id, dry_run):
     """Create IP address if it doesn't exist."""
     # Search existing
-    r = requests.get(f'{URL}/api/ipam/ip-addresses/', headers=HEADERS,
-                     params={'address': address, 'limit': 20}, timeout=15)
+    r = client.get('ipam/ip-addresses', params={'address': address, 'limit': 20})
     if r.status_code == 400:
-        r = requests.get(f'{URL}/api/ipam/ip-addresses/', headers=HEADERS,
-                         params={'limit': 200}, timeout=15)
+        r = client.get('ipam/ip-addresses', params={'limit': 200})
     if r.ok:
         for obj in r.json().get('results', []):
             if obj.get('address') == address:
@@ -367,8 +342,7 @@ def get_or_create_device(row, site_id, dt_id, role_id, platform_id,
                           tenant_id, status_id, sg_id, dry_run):
     """Find or create a device."""
     # Check if already exists
-    r = requests.get(f'{URL}/api/dcim/devices/', headers=HEADERS,
-                     params={'name': row['device_name'], 'limit': 10}, timeout=15)
+    r = client.get('dcim/devices', params={'name': row['device_name'], 'limit': 10})
     if r.ok:
         for obj in r.json().get('results', []):
             if obj.get('name') == row['device_name']:
@@ -417,21 +391,18 @@ def set_primary_ip(device_id, ip_id, dry_run):
         return 'would set'
 
     # Step 1 — get or create mgmt0 interface
-    r = requests.get(f'{URL}/api/dcim/interfaces/', headers=HEADERS,
-                     params={'device_id': device_id, 'name': 'mgmt0', 'limit': 5},
-                     timeout=10)
+    r = client.get('dcim/interfaces', params={'device_id': device_id, 'name': 'mgmt0', 'limit': 5})
     intf_id = None
     if r.ok and r.json().get('count', 0) > 0:
         intf_id = r.json()['results'][0]['id']
     else:
-        r2 = requests.post(f'{URL}/api/dcim/interfaces/', headers=HEADERS,
-                           json={
+        r2 = client.post('dcim/interfaces', {
                                "device":    {"id": device_id},
                                "name":      "mgmt0",
                                "type":      "1000base-t",
                                "mgmt_only": True,
                                "status":    {"id": _C['statuses']['Active']},
-                           }, timeout=10)
+                           })
         if r2.status_code == 201:
             intf_id = r2.json()['id']
         else:
@@ -439,12 +410,11 @@ def set_primary_ip(device_id, ip_id, dry_run):
 
     # Step 2 — link IP to interface via ip-address-to-interface
     # Always POST — if mapping exists Nautobot returns 400 unique constraint which we ignore
-    r4 = requests.post(f'{URL}/api/ipam/ip-address-to-interface/', headers=HEADERS,
-                       json={
+    r4 = client.post('ipam/ip-address-to-interface', {
                            "ip_address": {"id": ip_id},
                            "interface":  {"id": intf_id},
                            "is_primary": True,
-                       }, timeout=10)
+                       })
     if not r4.ok and 'already exists' not in r4.text and r4.status_code != 400:
         return f"FAILED linking IP to interface: {r4.status_code}: {r4.text[:80]}"
 
@@ -473,8 +443,7 @@ def get_or_create_controller(name, site_id, tenant_id, status_id,
     if name in ctrl_cache:
         return ctrl_cache[name], 'cached'
 
-    r = requests.get(f'{URL}/api/dcim/controllers/', headers=HEADERS,
-                     params={'name': name, 'limit': 10}, timeout=15)
+    r = client.get('dcim/controllers', params={'name': name, 'limit': 10})
     if r.ok:
         for obj in r.json().get('results', []):
             if obj.get('name') == name:
@@ -520,8 +489,7 @@ def get_or_create_controller_group(name, controller_id, tenant_id,
     if name in grp_cache:
         return grp_cache[name], 'cached'
 
-    r = requests.get(f'{URL}/api/dcim/controller-managed-device-groups/',
-                     headers=HEADERS, params={'name': name, 'limit': 10}, timeout=15)
+    r = client.get('dcim/controller-managed-device-groups', params={'name': name, 'limit': 10})
     if r.ok:
         for obj in r.json().get('results', []):
             if obj.get('name') == name:

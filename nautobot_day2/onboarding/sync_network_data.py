@@ -28,17 +28,6 @@ import argparse
 import requests
 from datetime import datetime
 from tabulate import tabulate
-from dotenv import load_dotenv
-
-load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env'))
-
-URL     = os.getenv('NAUTOBOT_URL')
-TOKEN   = os.getenv('NAUTOBOT_TOKEN')
-HEADERS = {
-    'Authorization': f'Token {TOKEN}',
-    'Content-Type':  'application/json',
-    'Accept':        'application/json'
-}
 
 LAB_DIR       = os.path.dirname(os.path.abspath(__file__))
 MANIFESTS_DIR = os.path.join(LAB_DIR, 'manifests')
@@ -50,7 +39,13 @@ VENDOR_COMMANDS_PATH = os.environ.get(
 )
 
 sys.path.insert(0, LAB_DIR)
+sys.path.insert(0, os.path.dirname(LAB_DIR))
 from vendor_matrix import VENDOR_MATRIX
+from client import NautobotClient
+
+client = NautobotClient(env_file=os.path.join(LAB_DIR, '.env'))
+URL   = client.url
+TOKEN = client.token
 
 # ── Global flag — flip to False per vendor when real devices ready ────────────
 SIMULATED = True
@@ -1135,21 +1130,13 @@ def extract_neighbors(raw_output, yaml_key):
 
 # ── Nautobot writer ───────────────────────────────────────────────────────────
 def api_get_all(endpoint, params=None):
-    results, url = [], f'{URL}/api/{endpoint}/'
-    p = dict(params or {}); p['limit'] = 200
-    while url:
-        r = requests.get(url, headers=HEADERS, params=p, timeout=15)
-        r.raise_for_status()
-        data = r.json()
-        results.extend(data.get('results', []))
-        url = data.get('next'); p = {}
-    return results
+    return client.get_all(endpoint, params=params)
 
 def api_post(endpoint, data):
-    return requests.post(f'{URL}/api/{endpoint}/', headers=HEADERS, json=data, timeout=15)
+    return client.post(endpoint, data)
 
 def api_patch(endpoint, obj_id, data):
-    return requests.patch(f'{URL}/api/{endpoint}/{obj_id}/', headers=HEADERS, json=data, timeout=15)
+    return client.patch(f'{endpoint}/{obj_id}', data)
 
 _status_cache = {}
 def get_active_status_id():
@@ -1164,8 +1151,7 @@ def write_interfaces(device_id, interfaces, dry_run):
     written, active_id = 0, get_active_status_id()
     for intf in interfaces:
         name = intf['name']
-        r = requests.get(f'{URL}/api/dcim/interfaces/', headers=HEADERS,
-                         params={'device_id': device_id, 'name': name, 'limit': 5}, timeout=15)
+        r = client.get('dcim/interfaces', params={'device_id': device_id, 'name': name, 'limit': 5})
         existing = next((o for o in r.json().get('results', []) if o['name'] == name), None)
         payload = {
             'device':      {'id': device_id},
@@ -1186,14 +1172,12 @@ def write_interfaces(device_id, interfaces, dry_run):
 def _assign_ip_to_interface(ip_addr, intf_id, device_id):
     """Create IP address and link it to interface if not already existing."""
     # Check if IP already exists
-    r = requests.get(f'{URL}/api/ipam/ip-addresses/', headers=HEADERS,
-                     params={'address': ip_addr, 'limit': 1}, timeout=15)
+    r = client.get('ipam/ip-addresses', params={'address': ip_addr, 'limit': 1})
     if r.ok and r.json().get('count', 0) > 0:
         ip_id = r.json()['results'][0]['id']
     else:
         # Create IP
-        statuses = requests.get(f'{URL}/api/extras/statuses/', headers=HEADERS,
-                                 params={'limit': 200}, timeout=15)
+        statuses = client.get('extras/statuses', params={'limit': 200})
         active_id = next((s['id'] for s in statuses.json().get('results',[])
                           if s['name'] == 'Active'), None) if statuses.ok else None
         r2 = api_post('ipam/ip-addresses', {
@@ -1223,9 +1207,7 @@ def _find_interface(device_id, port_name):
     - Prefix search: find any interface starting with port_name
     """
     def lookup(name):
-        r = requests.get(f'{URL}/api/dcim/interfaces/', headers=HEADERS,
-                         params={'device_id': device_id, 'name': name, 'limit': 1},
-                         timeout=15)
+        r = client.get('dcim/interfaces', params={'device_id': device_id, 'name': name, 'limit': 1})
         if r.ok and r.json().get('count', 0) > 0:
             return r.json()['results'][0]['id']
         return None
@@ -1249,9 +1231,7 @@ def _find_interface(device_id, port_name):
             return intf_id
 
     # 4. Prefix search — find interface starting with port_name
-    r = requests.get(f'{URL}/api/dcim/interfaces/', headers=HEADERS,
-                     params={'device_id': device_id, 'name__isw': port_name, 'limit': 1},
-                     timeout=15)
+    r = client.get('dcim/interfaces', params={'device_id': device_id, 'name__isw': port_name, 'limit': 1})
     if r.ok and r.json().get('count', 0) > 0:
         return r.json()['results'][0]['id']
 
@@ -1271,8 +1251,7 @@ def write_cables(device_id, device_name, lldp_neighbors, dry_run):
         return 0
 
     # Build device lookup maps
-    r = requests.get(f'{URL}/api/dcim/devices/', headers=HEADERS,
-                     params={'limit': 500}, timeout=15)
+    r = client.get('dcim/devices', params={'limit': 500})
     all_devs = r.json().get('results', []) if r.ok else []
 
     # Map 1: lldp_hostname → device_id
@@ -1289,7 +1268,7 @@ def write_cables(device_id, device_name, lldp_neighbors, dry_run):
         ip_obj  = d.get('primary_ip4') or {}
         ip_url  = ip_obj.get('url', '')
         if ip_url:
-            r_ip = requests.get(ip_url, headers=HEADERS, timeout=10)
+            r_ip = client.get_absolute(ip_url)
             if r_ip.ok:
                 addr = r_ip.json().get('address', '').split('/')[0]
                 if addr:
@@ -1299,16 +1278,14 @@ def write_cables(device_id, device_name, lldp_neighbors, dry_run):
     by_name = {d['name'].lower(): d['id'] for d in all_devs}
 
     # Get existing cables to avoid duplicates
-    r2 = requests.get(f'{URL}/api/dcim/cables/', headers=HEADERS,
-                      params={'limit': 500}, timeout=15)
+    r2 = client.get('dcim/cables', params={'limit': 500})
     existing_cables = set()
     for cable in (r2.json().get('results', []) if r2.ok else []):
         for term in cable.get('a_terminations', []) + cable.get('b_terminations', []):
             existing_cables.add(term.get('object_id', ''))
 
     # Get Connected status
-    statuses = requests.get(f'{URL}/api/extras/statuses/', headers=HEADERS,
-                             params={'limit': 200}, timeout=15)
+    statuses = client.get('extras/statuses', params={'limit': 200})
     connected_id = next((s['id'] for s in statuses.json().get('results', [])
                          if s['name'] == 'Connected'), None) if statuses.ok else None
 
@@ -1450,8 +1427,7 @@ def natural_to_slug(ns):
     return parts[0] if len(parts)==2 and len(parts[1])==4 else ns
 
 def get_devices(site_name, tenant_slug, category, failed_only, last_failed):
-    r = requests.get(f'{URL}/api/dcim/locations/', headers=HEADERS,
-                     params={'name': site_name, 'limit': 10}, timeout=15)
+    r = client.get('dcim/locations', params={'name': site_name, 'limit': 10})
     site_id = next((l['id'] for l in r.json().get('results',[])
                     if l['name']==site_name), None)
     if not site_id:
@@ -1502,7 +1478,7 @@ def sync_device(device, dry_run):
     ip_url  = ip_obj.get('url', '')
     device_ip = ''
     if ip_url:
-        r = requests.get(ip_url, headers=HEADERS, timeout=10)
+        r = client.get_absolute(ip_url)
         if r.ok:
             device_ip = r.json().get('address', '').split('/')[0]
 

@@ -23,24 +23,18 @@ import argparse
 import ipaddress
 import re
 from datetime import datetime
-from dotenv import load_dotenv
-import requests
 from tabulate import tabulate
-
-load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env'))
-
-URL     = os.getenv('NAUTOBOT_URL')
-TOKEN   = os.getenv('NAUTOBOT_TOKEN')
-HEADERS = {
-    'Authorization': f'Token {TOKEN}',
-    'Content-Type':  'application/json',
-    'Accept':        'application/json'
-}
 
 LAB_DIR       = os.path.dirname(os.path.abspath(__file__))
 MANIFESTS_DIR = os.path.join(LAB_DIR, 'manifests')
 
 sys.path.insert(0, LAB_DIR)
+sys.path.insert(0, os.path.dirname(LAB_DIR))
+from client import NautobotClient
+
+client = NautobotClient(env_file=os.path.join(LAB_DIR, '.env'))
+URL = client.url
+
 from vendor_matrix import (
     VENDOR_MATRIX,
     get_enabled_vendors,
@@ -168,14 +162,7 @@ def get_nautobot_cache():
         return _nautobot_cache
 
     def fetch_all(endpoint):
-        results, url = [], f'{URL}/api/{endpoint}/'
-        while url:
-            r = requests.get(url, headers=HEADERS, params={'limit': 200}, timeout=15)
-            r.raise_for_status()
-            data = r.json()
-            results.extend(data.get('results', []))
-            url = data.get('next')
-        return results
+        return client.get_all(endpoint, params={'limit': 200})
 
     def natural_to_slug(ns):
         if not ns:
@@ -270,8 +257,7 @@ def check_duplicate_ips(rows):
 
 def check_nautobot_ip_exists(ip):
     """Check if IP already exists in Nautobot."""
-    r = requests.get(f'{URL}/api/ipam/ip-addresses/', headers=HEADERS,
-                     params={'address': ip, 'limit': 5}, timeout=10)
+    r = client.get('ipam/ip-addresses', params={'address': ip, 'limit': 5})
     if r.ok:
         for obj in r.json().get('results', []):
             if obj.get('address') == ip:

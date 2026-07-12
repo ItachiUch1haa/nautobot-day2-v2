@@ -17,30 +17,24 @@ import json
 import io
 import argparse
 import re
-import requests
 from datetime import datetime
 from functools import lru_cache
 from flask import (
     Flask, request, jsonify, render_template,
     session, redirect, url_for, send_file
 )
-from dotenv import load_dotenv
-
-load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env'))
-
-URL     = os.getenv('NAUTOBOT_URL')
-TOKEN   = os.getenv('NAUTOBOT_TOKEN')
-HEADERS = {
-    'Authorization': f'Token {TOKEN}',
-    'Content-Type':  'application/json',
-    'Accept':        'application/json'
-}
 
 LAB_DIR       = os.path.dirname(os.path.abspath(__file__))
 PROFILES_DIR  = os.path.join(LAB_DIR, 'profiles')
 MANIFESTS_DIR = os.path.join(LAB_DIR, 'manifests')
 
 sys.path.insert(0, LAB_DIR)
+sys.path.insert(0, os.path.dirname(LAB_DIR))
+from client import NautobotClient, NautobotAPIError
+
+client = NautobotClient(env_file=os.path.join(LAB_DIR, '.env'))
+URL = client.url
+
 from vendor_matrix import (
     VENDOR_MATRIX,
     get_enabled_vendors,
@@ -63,16 +57,10 @@ app.secret_key = os.urandom(24)
 # ── Nautobot API helpers ──────────────────────────────────────────────────────
 
 def fetch_all(endpoint, params=None):
-    results, url = [], f'{URL}/api/{endpoint}/'
-    p = dict(params or {}); p['limit'] = 200
-    while url:
-        r = requests.get(url, headers=HEADERS, params=p, timeout=15)
-        if not r.ok:
-            return []
-        data = r.json()
-        results.extend(data.get('results', []))
-        url = data.get('next'); p = {}
-    return results
+    try:
+        return client.get_all(endpoint, params=params)
+    except NautobotAPIError:
+        return []
 
 def natural_to_slug(ns):
     if not ns:

@@ -16,14 +16,14 @@ import subprocess
 from datetime import datetime, timezone
 
 import requests
-from dotenv import load_dotenv
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-load_dotenv(os.path.join(SCRIPT_DIR, '.env'))
+sys.path.insert(0, os.path.dirname(SCRIPT_DIR))
+from client import NautobotClient
 
-URL = os.environ.get('NAUTOBOT_URL', 'http://127.0.0.1:8080')
-TOKEN = os.environ.get('NAUTOBOT_TOKEN')
-HEADERS = {'Authorization': f'Token {TOKEN}'} if TOKEN else {}
+client = NautobotClient(env_file=os.path.join(SCRIPT_DIR, '.env'))
+URL = client.url
+TOKEN = client.token
 
 VENDOR_COMMANDS_PATH = os.environ.get(
     'VENDOR_COMMANDS_PATH',
@@ -90,7 +90,7 @@ def port_reachable(port):
 
 def api_count(path, params=None):
     try:
-        r = requests.get(f'{URL}/api/{path}/', headers=HEADERS, params=params or {}, timeout=10)
+        r = client.get(path, params=params or {})
         if r.ok:
             return r.json().get('count', 0)
         return None

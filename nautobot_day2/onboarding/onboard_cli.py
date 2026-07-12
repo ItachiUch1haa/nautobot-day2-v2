@@ -14,25 +14,18 @@ import os
 import json
 import argparse
 import subprocess
-import requests
 from datetime import datetime
-from dotenv import load_dotenv
-
-load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env'))
-
-URL     = os.getenv('NAUTOBOT_URL')
-TOKEN   = os.getenv('NAUTOBOT_TOKEN')
-HEADERS = {
-    'Authorization': f'Token {TOKEN}',
-    'Content-Type':  'application/json',
-    'Accept':        'application/json'
-}
 
 LAB_DIR      = os.path.dirname(os.path.abspath(__file__))
 PROFILES_DIR = os.path.join(LAB_DIR, 'profiles')
 
 sys.path.insert(0, LAB_DIR)
+sys.path.insert(0, os.path.dirname(LAB_DIR))
 from vendor_matrix import VENDOR_MATRIX, get_enabled_vendors, get_device_types_for_vendor, get_access_methods
+from client import NautobotClient, NautobotAPIError
+
+client = NautobotClient(env_file=os.path.join(LAB_DIR, '.env'))
+URL = client.url
 
 
 # ── Terminal helpers ───────────────────────────────────────────────────────────
@@ -108,15 +101,10 @@ def confirm(prompt, default='y'):
 # ── Nautobot helpers ──────────────────────────────────────────────────────────
 
 def fetch_all(endpoint):
-    results, url = [], f'{URL}/api/{endpoint}/'
-    while url:
-        r = requests.get(url, headers=HEADERS, params={'limit': 200}, timeout=15)
-        if not r.ok:
-            return []
-        data = r.json()
-        results.extend(data.get('results', []))
-        url = data.get('next')
-    return results
+    try:
+        return client.get_all(endpoint, params={'limit': 200})
+    except NautobotAPIError:
+        return []
 
 def natural_to_slug(ns):
     if not ns:

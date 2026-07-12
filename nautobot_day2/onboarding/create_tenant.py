@@ -12,24 +12,13 @@ Usage:
 import sys
 import json
 import argparse
-import requests
 import os
 import re
 from datetime import datetime
-from dotenv import load_dotenv
 from tabulate import tabulate
 
-load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env'))
-
-URL     = os.getenv('NAUTOBOT_URL')
-TOKEN   = os.getenv('NAUTOBOT_TOKEN')
-HEADERS = {
-    'Authorization': f'Token {TOKEN}',
-    'Content-Type':  'application/json',
-    'Accept':        'application/json'
-}
-
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from vendor_matrix import (
     get_secrets_group_prefix,
     get_external_integration_name,
@@ -37,6 +26,10 @@ from vendor_matrix import (
     needs_enable_mode,
     VENDOR_MATRIX
 )
+from client import NautobotClient
+
+client = NautobotClient(env_file=os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env'))
+URL = client.url
 
 LAB_PROFILES_DIR  = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'profiles')
 LAB_MANIFESTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'manifests')
@@ -52,36 +45,13 @@ def slugify(name):
     return slug.strip('-')
 
 def api_post(endpoint, data):
-    return requests.post(
-        f'{URL}/api/{endpoint}/',
-        headers=HEADERS, json=data, timeout=10
-    )
+    return client.post(endpoint, data)
 
 def exists_by_name(endpoint, name):
-    """Check existence by name. Falls back to fetch-all if name filter unsupported."""
-    r = requests.get(
-        f'{URL}/api/{endpoint}/',
-        headers=HEADERS,
-        params={'name': name, 'limit': 10},
-        timeout=10
-    )
-    if r.status_code == 400:
-        r = requests.get(
-            f'{URL}/api/{endpoint}/',
-            headers=HEADERS,
-            params={'limit': 200},
-            timeout=10
-        )
-    if not r.ok:
-        return False, None
-    for obj in r.json().get('results', []):
-        if obj.get('name') == name:
-            return True, obj
-    return False, None
+    return client.find_by_name(endpoint, name)
 
 def get_id_by_name(endpoint, name):
-    found, obj = exists_by_name(endpoint, name)
-    return obj['id'] if found else None
+    return client.get_id_by_name(endpoint, name)
 
 
 # ── Profile ───────────────────────────────────────────────────────────────────
@@ -284,13 +254,10 @@ def get_or_create_secret(var_name, dry_run, results):
 
 
 def association_exists(sg_id, access_type, secret_type):
-    r = requests.get(
-        f'{URL}/api/extras/secrets-groups-associations/',
-        headers=HEADERS,
-        params={'secrets_group_id': sg_id, 'access_type': access_type,
-                'secret_type': secret_type, 'limit': 1},
-        timeout=10
-    )
+    r = client.get('extras/secrets-groups-associations', params={
+        'secrets_group_id': sg_id, 'access_type': access_type,
+        'secret_type': secret_type, 'limit': 1,
+    })
     return r.ok and r.json().get('count', 0) > 0
 
 
