@@ -16,7 +16,10 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env'))
 
 LAB_DIR   = os.path.dirname(os.path.abspath(__file__))
-YAML_PATH = os.environ.get('VENDOR_COMMANDS_PATH', '/home/ubuntu/nautobot-day2/vendor_commands/vendor_commands.yaml')
+YAML_PATH = os.environ.get(
+    'VENDOR_COMMANDS_PATH',
+    os.path.join(os.path.dirname(LAB_DIR), 'vendor_commands', 'vendor_commands.yaml')
+)
 
 app = Flask(__name__, template_folder=os.path.join(LAB_DIR, 'templates'))
 

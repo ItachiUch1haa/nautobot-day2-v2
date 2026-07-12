@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nautobot-day2"
+version = "0.1.0"
+description = "Customer/site onboarding pipeline and day-2 network data sync for Nautobot"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+dependencies = [
+    "requests>=2.28",
+    "python-dotenv>=1.0",
+    "PyYAML>=6.0",
+    "tabulate>=0.9",
+    "netmiko>=4.2",
+    "Flask>=2.3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "pytest-django>=4.5",
+]
+
+[tool.setuptools.packages.find]
+include = ["nautobot_day2*"]
+
+[tool.setuptools.package-data]
+nautobot_day2 = [
+    "onboarding/templates/*.html",
+    "onboarding/*.csv",
+    "vendor_commands/*.yaml",
+]

@@ -7,7 +7,7 @@ Read-only -- makes no changes. Rewritten to match the current
 lab-validated script set (replaces the legacy version that checked
 for old scripts/services no longer in use).
 
-Run from inside the site-onboard directory (lab or prod - path-agnostic).
+Run from inside the onboarding directory (lab or prod - path-agnostic).
 """
 import os
 import sys
@@ -27,7 +27,7 @@ HEADERS = {'Authorization': f'Token {TOKEN}'} if TOKEN else {}
 
 VENDOR_COMMANDS_PATH = os.environ.get(
     'VENDOR_COMMANDS_PATH',
-    '/home/ubuntu/nautobot-day2/vendor_commands/vendor_commands.yaml'
+    os.path.join(os.path.dirname(SCRIPT_DIR), 'vendor_commands', 'vendor_commands.yaml')
 )
 
 MANIFESTS_DIR = os.path.join(SCRIPT_DIR, 'manifests')
@@ -133,8 +133,8 @@ def main():
         check(fname, exists, size_kb)
 
     section("Directories & Permissions")
-    check('site-onboard dir exists', os.path.isdir(SCRIPT_DIR), SCRIPT_DIR)
-    check('site-onboard dir writable', os.access(SCRIPT_DIR, os.W_OK), SCRIPT_DIR)
+    check('onboarding dir exists', os.path.isdir(SCRIPT_DIR), SCRIPT_DIR)
+    check('onboarding dir writable', os.access(SCRIPT_DIR, os.W_OK), SCRIPT_DIR)
     check('manifests dir exists', os.path.isdir(MANIFESTS_DIR), MANIFESTS_DIR)
     check('profiles dir exists', os.path.isdir(PROFILES_DIR), PROFILES_DIR)
 

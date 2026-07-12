@@ -44,7 +44,10 @@ LAB_DIR       = os.path.dirname(os.path.abspath(__file__))
 MANIFESTS_DIR = os.path.join(LAB_DIR, 'manifests')
 
 # Same YAML path as production — single source of truth
-VENDOR_COMMANDS_PATH = os.environ.get('VENDOR_COMMANDS_PATH', '/home/ubuntu/nautobot-day2/vendor_commands/vendor_commands.yaml')
+VENDOR_COMMANDS_PATH = os.environ.get(
+    'VENDOR_COMMANDS_PATH',
+    os.path.join(os.path.dirname(LAB_DIR), 'vendor_commands', 'vendor_commands.yaml')
+)
 
 sys.path.insert(0, LAB_DIR)
 from vendor_matrix import VENDOR_MATRIX

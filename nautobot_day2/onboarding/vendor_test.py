@@ -21,7 +21,10 @@ import requests
 from datetime import datetime
 
 LAB_DIR       = os.path.dirname(os.path.abspath(__file__))
-YAML_PATH     = os.environ.get('VENDOR_COMMANDS_PATH', '/home/ubuntu/nautobot-day2/vendor_commands/vendor_commands.yaml')
+YAML_PATH     = os.environ.get(
+    'VENDOR_COMMANDS_PATH',
+    os.path.join(os.path.dirname(LAB_DIR), 'vendor_commands', 'vendor_commands.yaml')
+)
 
 sys.path.insert(0, LAB_DIR)
 

@@ -13,11 +13,12 @@ from nautobot.extras.jobs import Job, StringVar, ChoiceVar, BooleanVar, ObjectVa
 from nautobot.dcim.models import Device, Location
 from nautobot.tenancy.models import Tenant
 
-# Path to sync engine — resolved relative to this repo, not a fixed lab path
-REPO_ROOT       = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SITE_ONBOARD_DIR = os.path.join(REPO_ROOT, "site-onboard")
-SYNC_SCRIPT     = os.path.join(SITE_ONBOARD_DIR, "sync_network_data.py")
-LAB_DIR         = SITE_ONBOARD_DIR
+# Path to sync engine — resolved relative to this installed package, so it
+# works the same whether run from a git checkout or a pip-installed App.
+PACKAGE_ROOT   = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ONBOARDING_DIR = os.path.join(PACKAGE_ROOT, "onboarding")
+SYNC_SCRIPT    = os.path.join(ONBOARDING_DIR, "sync_network_data.py")
+LAB_DIR        = ONBOARDING_DIR
 
 name = "NOC Network Sync"
 
@@ -25,7 +26,7 @@ name = "NOC Network Sync"
 def _load_tenant_env(tenant_slug):
     """Load tenant credentials into os.environ."""
     for path in [
-        os.path.join(SITE_ONBOARD_DIR, "profiles", f"{tenant_slug}.env"),
+        os.path.join(ONBOARDING_DIR, "profiles", f"{tenant_slug}.env"),
         f"/etc/nautobot/tenants/{tenant_slug}.env",
     ]:
         if not os.path.exists(path):
