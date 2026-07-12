@@ -23,6 +23,12 @@ dev = [
     "pytest>=7.4",
     "pytest-django>=4.5",
 ]
+chatops = [
+    "nautobot-chatops>=3.0",
+]
+
+[project.entry-points."nautobot.workers"]
+nautobot_day2 = "nautobot_day2.chatops.worker"
 
 [tool.setuptools.packages.find]
 include = ["nautobot_day2*"]

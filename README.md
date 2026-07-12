@@ -15,6 +15,8 @@ nautobot_day2/            installable Python package (the Nautobot App)
 ├── jobs/                 Nautobot Jobs (dispatchers — run via Job scheduler/Celery)
 │   ├── mist_sync.py
 │   └── sync_network_data_job.py
+├── chatops/               Slack/Teams commands (via nautobot-chatops)
+│   └── worker.py          /nautobot onboard, /nautobot fill-creds
 ├── onboarding/            onboarding CLI pipeline + vendor sync engine
 │   ├── onboard_cli.py     orchestrates the phases below
 │   ├── create_tenant.py
@@ -75,6 +77,36 @@ nautobot-server celery worker -Q nautobot_day2_sync --concurrency=10
 Add more replicas of that command to sync more devices in parallel across
 the fleet. `max_concurrent_per_site` above still caps how many of those
 run against any single site at once, no matter how many replicas you add.
+
+### ChatOps — onboard from Slack (Microsoft Teams later, same code)
+
+1. Install with the `chatops` extra so `nautobot-chatops` comes along:
+   ```bash
+   pip install ".[chatops]"
+   ```
+2. Add `nautobot_chatops` to `PLUGINS` **before** `nautobot_day2` in
+   `nautobot_config.py`, and follow nautobot-chatops' own Slack app setup
+   (bot token + signing secret from your Slack workspace — see its docs).
+   `nautobot_day2`'s commands register automatically via the
+   `nautobot.workers` entry point declared in `pyproject.toml` — no extra
+   config needed on this App's side.
+3. Restart Nautobot's web and worker processes.
+
+In Slack:
+- `/nautobot onboard` — menu: onboard a new site for an existing tenant,
+  check a tenant's credential status, or trigger a sync on demand.
+- `/nautobot fill-creds <tenant-slug>` — fills in missing device credentials
+  one at a time through a private prompt (never posted to the channel),
+  writing straight into that tenant's `.env` file — replaces the old
+  "SSH into the server and edit it by hand" step.
+
+New-customer setup (choosing which vendors/device types a tenant uses)
+still goes through `create_tenant.py`'s profile JSON or the CLI — that's
+a multi-select choice better suited to a file/form than a chat wizard.
+Once a tenant profile exists, the rest of the flow works from chat.
+
+When you're ready for Microsoft Teams, it's the same `nautobot_day2`
+code — just add the Teams adapter to `nautobot-chatops`' own config.
 
 ## Running the onboarding pipeline
 
