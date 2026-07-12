@@ -1,3 +1,0 @@
-<group name="serials">
-  Serial Number      : {{ serial | ORPHRASE }}
-</group>

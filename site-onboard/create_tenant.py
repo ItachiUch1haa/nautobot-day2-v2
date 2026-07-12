@@ -105,14 +105,18 @@ def derive_objects(profile):
       - secrets_groups  : { prefix → full_name }
       - integrations    : { full_name → linked_sg_name }
       - env_vars        : sorted list of var names for this tenant
+      - prefix_env_vars : { prefix → [base_var_name, ...] } — feeds real
+                          Nautobot Secret objects for each group (see
+                          create_secrets_groups)
     Nothing is hardcoded — everything comes from vendor_matrix.
     """
     slug   = profile['slug']
     suffix = slug.upper().replace('-', '_')
 
-    secrets_groups = {}   # keyed by prefix to auto-deduplicate
-    integrations   = {}   # keyed by full name to auto-deduplicate
-    env_vars       = set()
+    secrets_groups   = {}   # keyed by prefix to auto-deduplicate
+    integrations     = {}   # keyed by full name to auto-deduplicate
+    env_vars         = set()
+    prefix_env_vars  = {}   # keyed by prefix → ordered, deduped base var names
 
     for vendor, device_types in profile['selections'].items():
         for device_type, access_methods in device_types.items():
@@ -132,8 +136,14 @@ def derive_objects(profile):
                         integrations[full_int] = sg_name
 
                 # ── Env vars ───────────────────────────────────────────
-                for var in get_env_vars(vendor, device_type, access_method):
+                base_vars = get_env_vars(vendor, device_type, access_method)
+                for var in base_vars:
                     env_vars.add(f"{var}_{suffix}")
+                if prefix:
+                    bucket = prefix_env_vars.setdefault(prefix, [])
+                    for var in base_vars:
+                        if var not in bucket:
+                            bucket.append(var)
 
                 # ── Enable mode extra var ──────────────────────────────
                 if needs_enable_mode(vendor, device_type, access_method):
@@ -143,11 +153,16 @@ def derive_objects(profile):
                     )
                     if enable_var:
                         env_vars.add(f"{enable_var}_{suffix}")
+                        if prefix:
+                            bucket = prefix_env_vars.setdefault(prefix, [])
+                            if enable_var not in bucket:
+                                bucket.append(enable_var)
 
     return {
-        'secrets_groups': secrets_groups,
-        'integrations':   integrations,
-        'env_vars':       sorted(env_vars),
+        'secrets_groups':  secrets_groups,
+        'integrations':    integrations,
+        'env_vars':        sorted(env_vars),
+        'prefix_env_vars': prefix_env_vars,
     }
 
 
@@ -224,31 +239,134 @@ def create_namespace(profile, dry_run, results):
         return None
 
 
+def _infer_secret_type(var_base):
+    """
+    Guess a Nautobot SecretsGroupAssociation secret_type from an env var's
+    base name (e.g. 'ARUBA_SSH_PASS' -> 'password'). Returns None for
+    vars that are plain config rather than a credential (e.g. BASE_URL) —
+    those stay in the tenant .env file only, they don't belong in Secrets.
+    """
+    v = var_base.upper()
+    if v.endswith('_ID'):
+        return 'key'
+    if 'PASS' in v:
+        return 'password'
+    if 'USER' in v:
+        return 'username'
+    if 'TOKEN' in v:
+        return 'token'
+    if 'SECRET' in v:
+        return 'secret'
+    return None
+
+
+def get_or_create_secret(var_name, dry_run, results):
+    """Find or create a Nautobot Secret backed by the environment-variable
+    provider, so it resolves to the real value at runtime without Nautobot
+    ever storing the value itself."""
+    found, obj = exists_by_name('extras/secrets', var_name)
+    if found:
+        return obj['id'], False
+
+    if dry_run:
+        return None, True
+
+    r = api_post('extras/secrets', {
+        "name":     var_name,
+        "provider": "environment-variable",
+        "parameters": {"variable": var_name},
+    })
+    if r.status_code == 201:
+        return r.json()['id'], True
+    print(f"  FAIL  secret {var_name} — {r.status_code}: {r.text[:120]}")
+    results.append([var_name, 'Secret', f'FAILED {r.status_code}'])
+    return None, False
+
+
+def association_exists(sg_id, access_type, secret_type):
+    r = requests.get(
+        f'{URL}/api/extras/secrets-groups-associations/',
+        headers=HEADERS,
+        params={'secrets_group_id': sg_id, 'access_type': access_type,
+                'secret_type': secret_type, 'limit': 1},
+        timeout=10
+    )
+    return r.ok and r.json().get('count', 0) > 0
+
+
 def create_secrets_groups(profile, derived, dry_run, results):
     print("\n── Secrets groups ───────────────────────────────────")
     if not derived['secrets_groups']:
         print("  (none needed for this tenant's selections)")
         return
 
+    suffix = profile['slug'].upper().replace('-', '_')
+
     for prefix, group_name in derived['secrets_groups'].items():
-        found, _ = exists_by_name('extras/secrets-groups', group_name)
+        found, sg_obj = exists_by_name('extras/secrets-groups', group_name)
         if found:
             print(f"  SKIP  {group_name}")
             results.append([group_name, 'Secrets Group', 'skipped'])
-            continue
-
-        if dry_run:
+        elif dry_run:
             print(f"  DRY   {group_name}")
             results.append([group_name, 'Secrets Group', 'would create'])
+            sg_obj = None
+        else:
+            r = api_post('extras/secrets-groups', {"name": group_name})
+            if r.status_code == 201:
+                sg_obj = r.json()
+                print(f"  OK    {group_name}")
+                results.append([group_name, 'Secrets Group', 'created'])
+            else:
+                print(f"  FAIL  {group_name} — {r.status_code}: {r.text[:120]}")
+                results.append([group_name, 'Secrets Group', f'FAILED {r.status_code}'])
+                sg_obj = None
+
+        if not sg_obj:
             continue
 
-        r = api_post('extras/secrets-groups', {"name": group_name})
-        if r.status_code == 201:
-            print(f"  OK    {group_name}")
-            results.append([group_name, 'Secrets Group', 'created'])
-        else:
-            print(f"  FAIL  {group_name} — {r.status_code}: {r.text[:120]}")
-            results.append([group_name, 'Secrets Group', f'FAILED {r.status_code}'])
+        # Wire real, env-var-backed Secrets into the group so
+        # SecretsGroup.get_secret_value() actually resolves a credential
+        # at runtime instead of the group being an empty shell.
+        for var_base in derived['prefix_env_vars'].get(prefix, []):
+            secret_type = _infer_secret_type(var_base)
+            if not secret_type:
+                continue  # plain config (e.g. BASE_URL) — not a credential
+
+            var_name = f"{var_base}_{suffix}"
+
+            if dry_run:
+                print(f"  DRY   secret {var_name} ({secret_type}) -> {group_name}")
+                results.append([var_name, 'Secret', 'would create'])
+                continue
+
+            secret_id, created = get_or_create_secret(var_name, dry_run, results)
+            if not secret_id:
+                continue
+            print(f"  {'OK   ' if created else 'SKIP '} secret {var_name}")
+            results.append([var_name, 'Secret', 'created' if created else 'skipped'])
+
+            if association_exists(sg_obj['id'], 'Generic', secret_type):
+                # Nautobot allows only one secret per (access_type, secret_type)
+                # per group — e.g. a login password and an enable password
+                # can't both be 'Generic'/'password' in the same group.
+                print(f"  SKIP  {group_name} already has a '{secret_type}' secret — "
+                      f"'{var_name}' stays available via the tenant .env file only")
+                results.append([var_name, 'Secrets Group Association', 'skipped (slot taken)'])
+                continue
+
+            r = api_post('extras/secrets-groups-associations', {
+                "secrets_group": sg_obj['id'],
+                "secret":        secret_id,
+                "access_type":   "Generic",
+                "secret_type":   secret_type,
+            })
+            if r.status_code == 201:
+                print(f"  OK    linked {var_name} ({secret_type}) -> {group_name}")
+                results.append([f"{group_name} -> {var_name}", 'Secrets Group Association', 'created'])
+            else:
+                print(f"  FAIL  link {var_name} -> {group_name} — {r.status_code}: {r.text[:120]}")
+                results.append([f"{group_name} -> {var_name}", 'Secrets Group Association', f'FAILED {r.status_code}'])
 
 
 def create_external_integrations(profile, derived, dry_run, results):
