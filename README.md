@@ -1,1 +1,1 @@
-# nautobot-day2-v2
+# nautobot-day2

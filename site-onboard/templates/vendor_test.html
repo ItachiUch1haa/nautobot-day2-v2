@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nautobot — Vendor Connection Tester</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+       font-size: 14px; background: #f0f2f5; color: #1a1a2e; }
+.header { background: #1B3A6B; color: white; padding: 14px 24px;
+          display: flex; align-items: center; justify-content: space-between; }
+.header h1 { font-size: 18px; font-weight: 600; }
+.header span { font-size: 12px; opacity: .7; }
+.container { max-width: 1100px; margin: 0 auto; padding: 24px; }
+.card { background: white; border-radius: 10px; border: 1px solid #e2e6ea;
+        padding: 20px; margin-bottom: 20px; }
+.card h2 { font-size: 14px; font-weight: 600; color: #1B3A6B;
+           margin-bottom: 14px; padding-bottom: 8px;
+           border-bottom: 2px solid #E6F1FB; }
+.tabs { display: flex; border-bottom: 2px solid #e2e6ea; margin-bottom: 20px; }
+.tab { padding: 10px 20px; cursor: pointer; font-size: 13px; font-weight: 500;
+       color: #5F5E5A; border-bottom: 2px solid transparent; margin-bottom: -2px; }
+.tab.active { color: #1B3A6B; border-bottom-color: #1B3A6B; }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+label { display: block; font-size: 12px; font-weight: 500; color: #5F5E5A; margin-bottom: 4px; }
+select, input[type=text], input[type=password] {
+  width: 100%; padding: 8px 10px; border: 1px solid #d1d5db;
+  border-radius: 6px; font-size: 13px; color: #1a1a2e; background: white; }
+select:focus, input:focus { outline: none; border-color: #1B3A6B; }
+.field-group { margin-bottom: 12px; }
+.btn { padding: 8px 18px; border-radius: 6px; border: none;
+       font-size: 13px; font-weight: 500; cursor: pointer; }
+.btn-primary { background: #1B3A6B; color: white; }
+.btn-primary:hover { background: #152d54; }
+.btn-success { background: #0F6E56; color: white; }
+.btn-outline { background: white; color: #1B3A6B; border: 1px solid #1B3A6B; }
+.actions { display: flex; gap: 10px; align-items: center; margin-top: 16px; }
+.alert { padding: 10px 14px; border-radius: 6px; font-size: 13px; margin-bottom: 12px; }
+.alert-info  { background: #E6F1FB; color: #1B3A6B; border: 1px solid #B5D4F4; }
+.alert-warn  { background: #FAEEDA; color: #633806; border: 1px solid #FAC775; }
+.alert-ok    { background: #E1F5EE; color: #085041; border: 1px solid #9FE1CB; }
+.alert-error { background: #FCEBEB; color: #A32D2D; border: 1px solid #F7C1C1; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; }
+.badge-ok    { background: #E1F5EE; color: #0F6E56; }
+.badge-warn  { background: #FAEEDA; color: #BA7517; }
+.badge-error { background: #FCEBEB; color: #A32D2D; }
+.badge-skip  { background: #f0f2f5; color: #5F5E5A; }
+.result-card { border: 1px solid #e2e6ea; border-radius: 8px;
+               margin-bottom: 12px; overflow: hidden; }
+.result-header { padding: 10px 14px; display: flex; align-items: center;
+                 justify-content: space-between; cursor: pointer;
+                 background: #fafbfc; }
+.result-header:hover { background: #E6F1FB; }
+.result-body { padding: 14px; border-top: 1px solid #e2e6ea; display: none; }
+.result-body.open { display: block; }
+.cmd-row { margin-bottom: 8px; }
+.cmd-name { font-weight: 500; font-size: 12px; color: #1B3A6B; }
+.cmd-output { font-family: "Courier New", monospace; font-size: 11px;
+              background: #EFF3F8; padding: 6px 10px; border-radius: 4px;
+              white-space: pre; overflow-x: auto; max-height: 120px;
+              overflow-y: auto; margin-top: 4px; color: #1a1a2e; }
+.facts-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+.fact-item { background: #f8f9fa; border-radius: 6px; padding: 8px 10px; }
+.fact-label { font-size: 11px; color: #888; }
+.fact-value { font-size: 13px; font-weight: 500; color: #1B3A6B; margin-top: 2px; }
+.progress-bar { height: 4px; background: #e2e6ea; border-radius: 2px; margin: 8px 0; }
+.progress-fill { height: 100%; background: #1B3A6B; border-radius: 2px;
+                 transition: width .3s ease; }
+.spinner { display: inline-block; width: 14px; height: 14px;
+           border: 2px solid #e2e6ea; border-top-color: #1B3A6B;
+           border-radius: 50%; animation: spin .6s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.summary-bar { display: flex; gap: 16px; padding: 12px 16px;
+               background: #f8f9fa; border-radius: 8px; margin-bottom: 16px; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+th { background: #1B3A6B; color: white; padding: 8px 10px; text-align: left; }
+td { padding: 7px 10px; border-bottom: 1px solid #f0f2f5; }
+tr:hover td { background: #E6F1FB; }
+code { font-family: "Courier New", monospace; background: #EFF3F8;
+       padding: 1px 5px; border-radius: 3px; font-size: 11px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>Nautobot &mdash; Vendor Connection Tester</h1>
+    <span>Pre-onboarding connectivity and command validation</span>
+  </div>
+  <span id="yamlStatus" style="font-size:12px;opacity:.7">Loading YAML...</span>
+</div>
+
+<div class="container">
+
+  <div class="tabs">
+    <div class="tab active" id="tab-single" onclick="switchTab('single')">Single Device</div>
+    <div class="tab" id="tab-csv"    onclick="switchTab('csv')">CSV Batch Test</div>
+    <div class="tab" id="tab-vendors" onclick="switchTab('vendors')">Vendor List</div>
+  </div>
+
+  <!-- SINGLE DEVICE -->
+  <div id="paneSingle">
+    <div class="card">
+      <h2>Test a Single Device</h2>
+      <div class="grid-3">
+        <div class="field-group">
+          <label>Vendor / Platform *</label>
+          <select id="vendorSelect" onchange="onVendorChange()">
+            <option value="">Loading...</option>
+          </select>
+        </div>
+        <div class="field-group" id="ipGroup">
+          <label>Device IP *</label>
+          <input type="text" id="deviceIp" placeholder="172.33.1.1">
+        </div>
+        <div class="field-group" id="userGroup">
+          <label>Username *</label>
+          <input type="text" id="sshUser" placeholder="admin">
+        </div>
+      </div>
+      <div class="grid-3">
+        <div class="field-group" id="passGroup">
+          <label>Password *</label>
+          <input type="password" id="sshPass" placeholder="password">
+        </div>
+        <div class="field-group" id="enableGroup" style="display:none">
+          <label>Enable Password</label>
+          <input type="password" id="enablePass" placeholder="optional">
+        </div>
+        <div class="field-group" id="tokenGroup" style="display:none">
+          <label>API Token *</label>
+          <input type="text" id="apiToken" placeholder="token...">
+        </div>
+        <div class="field-group" id="orgGroup" style="display:none">
+          <label>Org ID *</label>
+          <input type="text" id="orgId" placeholder="org-uuid">
+        </div>
+      </div>
+      <div class="grid-3" id="oauthGroup" style="display:none">
+        <div class="field-group">
+          <label>Client ID *</label>
+          <input type="text" id="clientId" placeholder="client_id">
+        </div>
+        <div class="field-group">
+          <label>Client Secret *</label>
+          <input type="password" id="clientSecret" placeholder="client_secret">
+        </div>
+        <div class="field-group">
+          <label>Refresh Token *</label>
+          <input type="text" id="refreshToken" placeholder="refresh_token">
+        </div>
+      </div>
+      <div class="field-group" id="baseUrlGroup" style="display:none">
+        <label>Base URL *</label>
+        <input type="text" id="baseUrl" placeholder="https://api.eu.mist.com">
+      </div>
+      <div class="actions">
+        <button class="btn btn-primary" onclick="runSingleTest()" id="testBtn">
+          Run Connection Test
+        </button>
+        <span id="testSpinner" style="display:none"><span class="spinner"></span> Testing...</span>
+      </div>
+    </div>
+    <div id="singleResult"></div>
+  </div>
+
+  <!-- CSV BATCH -->
+  <div id="paneCsv" style="display:none">
+    <div class="card">
+      <h2>Batch Test from CSV</h2>
+      <div class="alert alert-info">
+        Upload an engineer CSV with columns: device_name, vendor, ip, username, password
+        (same format as the site onboarding CSV — reuses existing credentials).
+        Each device will be tested against its vendor block in vendor_commands.yaml.
+      </div>
+      <div class="field-group" style="margin-top:12px">
+        <label>CSV File</label>
+        <input type="file" id="csvFile" accept=".csv"
+               onchange="handleCsvUpload(event)" style="font-size:13px">
+      </div>
+      <div class="alert alert-warn" style="margin-top:12px">
+        Note: CSV must include credentials columns (username, password).
+        These are only used for testing — not stored anywhere.
+      </div>
+    </div>
+    <div id="batchProgress" style="display:none">
+      <div class="card">
+        <h2>Batch Test Progress</h2>
+        <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+        <div id="progressText" style="font-size:12px;color:#666;margin-top:4px">0 / 0 devices tested</div>
+      </div>
+    </div>
+    <div id="batchResults"></div>
+  </div>
+
+  <!-- VENDOR LIST -->
+  <div id="paneVendors" style="display:none">
+    <div class="card">
+      <h2>Available Vendors in vendor_commands.yaml</h2>
+      <div id="vendorTable"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+var vendors = {};
+
+function switchTab(tab) {
+  ["single","csv","vendors"].forEach(function(t) {
+    document.getElementById("pane" + t.charAt(0).toUpperCase() + t.slice(1)).style.display = t === tab ? "" : "none";
+    document.getElementById("tab-" + t).className = "tab" + (t === tab ? " active" : "");
+  });
+  if (tab === "vendors") loadVendorTable();
+}
+
+function init() {
+  fetch("/api/vendors")
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      vendors = data;
+      var sel = document.getElementById("vendorSelect");
+      sel.innerHTML = "<option value=\"\">Select vendor...</option>";
+      Object.keys(data).sort().forEach(function(key) {
+        var v = data[key];
+        var opt = document.createElement("option");
+        opt.value = key;
+        opt.text  = key + " (" + v.section + " / " + v.data_source + ")";
+        sel.appendChild(opt);
+      });
+      document.getElementById("yamlStatus").textContent = Object.keys(data).length + " vendors loaded";
+    });
+}
+
+function onVendorChange() {
+  var key = document.getElementById("vendorSelect").value;
+  if (!key || !vendors[key]) return;
+  var v = vendors[key];
+  var isApi = v.data_source === "api";
+  var isMist    = v.api_type === "juniper_mist";
+  var isCentral = v.api_type === "aruba_central";
+
+  document.getElementById("ipGroup").style.display    = isApi ? "none" : "";
+  document.getElementById("userGroup").style.display  = isApi ? "none" : "";
+  document.getElementById("passGroup").style.display  = isApi ? "none" : "";
+  document.getElementById("enableGroup").style.display = (!isApi && ["cisco_asa","cisco_iosxe","cisco_ios","cisco_nxos","cisco_ftd"].includes(key)) ? "" : "none";
+  document.getElementById("tokenGroup").style.display  = isMist ? "" : "none";
+  document.getElementById("orgGroup").style.display    = isMist ? "" : "none";
+  document.getElementById("oauthGroup").style.display  = isCentral ? "" : "none";
+  document.getElementById("baseUrlGroup").style.display = (isMist || isCentral) ? "" : "none";
+
+  // Pre-fill base URL hints
+  if (isMist)    document.getElementById("baseUrl").placeholder = "https://api.eu.mist.com";
+  if (isCentral) document.getElementById("baseUrl").placeholder = "https://api-ap.central.arubanetworks.com";
+}
+
+function runSingleTest() {
+  var vendor = document.getElementById("vendorSelect").value;
+  if (!vendor) { alert("Select a vendor"); return; }
+
+  var payload = { vendor: vendor };
+  var v = vendors[vendor] || {};
+
+  if (v.data_source === "ssh") {
+    payload.ip       = document.getElementById("deviceIp").value.trim();
+    payload.user     = document.getElementById("sshUser").value.trim();
+    payload.password = document.getElementById("sshPass").value;
+    payload.enable   = document.getElementById("enablePass").value;
+    if (!payload.ip || !payload.user || !payload.password) {
+      alert("IP, username and password required"); return;
+    }
+  } else if (v.api_type === "juniper_mist") {
+    payload.token    = document.getElementById("apiToken").value.trim();
+    payload.org_id   = document.getElementById("orgId").value.trim();
+    payload.base_url = document.getElementById("baseUrl").value.trim();
+    if (!payload.token || !payload.org_id || !payload.base_url) {
+      alert("Token, org ID and base URL required"); return;
+    }
+  } else if (v.api_type === "aruba_central") {
+    payload.client_id     = document.getElementById("clientId").value.trim();
+    payload.client_secret = document.getElementById("clientSecret").value.trim();
+    payload.refresh_token = document.getElementById("refreshToken").value.trim();
+    payload.base_url      = document.getElementById("baseUrl").value.trim();
+    if (!payload.client_id || !payload.client_secret || !payload.refresh_token) {
+      alert("Client ID, secret and refresh token required"); return;
+    }
+  }
+
+  document.getElementById("testBtn").disabled = true;
+  document.getElementById("testSpinner").style.display = "";
+  document.getElementById("singleResult").innerHTML = "";
+
+  fetch("/api/test-device", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(payload)
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    document.getElementById("testBtn").disabled = false;
+    document.getElementById("testSpinner").style.display = "none";
+    document.getElementById("singleResult").innerHTML = renderResult(data, true);
+  })
+  .catch(function(e) {
+    document.getElementById("testBtn").disabled = false;
+    document.getElementById("testSpinner").style.display = "none";
+    document.getElementById("singleResult").innerHTML =
+      "<div class=\"alert alert-error\">Error: " + e + "</div>";
+  });
+}
+
+function renderResult(r, expanded) {
+  var icon    = r.status === "ready" ? "✅" : r.status === "partial" ? "⚠️" : "❌";
+  var bcls    = r.status === "ready" ? "badge-ok" : r.status === "partial" ? "badge-warn" : "badge-error";
+  var id      = "res-" + Math.random().toString(36).substr(2,6);
+  var cmdHtml = "";
+
+  if (r.commands) {
+    Object.keys(r.commands).forEach(function(cmd) {
+      var c    = r.commands[cmd];
+      var cIcon = c.ok ? "✅" : c.empty ? "⚠️" : "❌";
+      cmdHtml += "<div class=\"cmd-row\">" +
+        "<span class=\"cmd-name\">" + cIcon + " " + cmd + "</span>" +
+        " <code>" + (c.cmd_str || "") + "</code>" +
+        (c.lines ? " <span style=\"font-size:11px;color:#888\">(" + c.lines + " lines)</span>" : "") +
+        (c.error ? " <span style=\"color:#A32D2D;font-size:11px\">" + c.error.substr(0,60) + "</span>" : "") +
+        (c.preview ? "<div class=\"cmd-output\">" + c.preview + "</div>" : "") +
+        "</div>";
+    });
+  }
+
+  var factsHtml = "";
+  if (r.facts) {
+    var f = r.facts;
+    ["serial","firmware","hostname","model","status","mac","ip"].forEach(function(k) {
+      if (f[k]) {
+        factsHtml += "<div class=\"fact-item\">" +
+          "<div class=\"fact-label\">" + k + "</div>" +
+          "<div class=\"fact-value\">" + f[k] + "</div>" +
+          "</div>";
+      }
+    });
+  }
+
+  return "<div class=\"result-card\">" +
+    "<div class=\"result-header\" onclick=\"toggleResult('" + id + "')\">" +
+      "<div>" +
+        "<strong>" + (r.device_name || r.vendor) + "</strong>" +
+        " &nbsp; <span class=\"badge " + bcls + "\">" + icon + " " + r.status + "</span>" +
+        (r.vendor ? " &nbsp; <code>" + r.vendor + "</code>" : "") +
+        (r.ip ? " &nbsp; " + r.ip : "") +
+      "</div>" +
+      "<span style=\"font-size:11px;color:#888\">" + (r.message || "") + "</span>" +
+    "</div>" +
+    "<div class=\"result-body" + (expanded ? " open" : "") + "\" id=\"" + id + "\">" +
+      (factsHtml ? "<div class=\"facts-grid\">" + factsHtml + "</div>" : "") +
+      (r.csv_hint ? "<div class=\"alert alert-ok\" style=\"margin-top:10px\">" + r.csv_hint + "</div>" : "") +
+      (r.fix_hint ? "<div class=\"alert alert-warn\" style=\"margin-top:10px\">" + r.fix_hint + "</div>" : "") +
+      (cmdHtml ? "<div style=\"margin-top:10px\">" + cmdHtml + "</div>" : "") +
+    "</div>" +
+    "</div>";
+}
+
+function toggleResult(id) {
+  var el = document.getElementById(id);
+  el.className = el.className.indexOf("open") >= 0
+    ? "result-body" : "result-body open";
+}
+
+function handleCsvUpload(event) {
+  var file = event.target.files[0];
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var text  = e.target.result;
+    var lines = text.trim().split("\n");
+    if (lines.length < 2) { alert("CSV empty or no data rows"); return; }
+
+    var headers = lines[0].split(",").map(function(h) { return h.trim().toLowerCase(); });
+    var rows    = [];
+    for (var i = 1; i < lines.length; i++) {
+      var vals = lines[i].split(",").map(function(v) { return v.trim(); });
+      var row  = {};
+      headers.forEach(function(h, idx) { row[h] = vals[idx] || ""; });
+      if (row.vendor || row.platform) rows.push(row);
+    }
+
+    runBatchTest(rows);
+  };
+  reader.readAsText(file);
+}
+
+function runBatchTest(rows) {
+  document.getElementById("batchProgress").style.display = "";
+  document.getElementById("batchResults").innerHTML = "";
+
+  var results = [];
+  var total   = rows.length;
+  var done    = 0;
+
+  function updateProgress() {
+    var pct = total > 0 ? Math.round((done/total)*100) : 0;
+    document.getElementById("progressFill").style.width = pct + "%";
+    document.getElementById("progressText").textContent = done + " / " + total + " devices tested";
+  }
+
+  function testNext(idx) {
+    if (idx >= rows.length) {
+      renderBatchResults(results);
+      return;
+    }
+    var row = rows[idx];
+    var vendor = (row.platform || row.vendor || "").toLowerCase()
+      .replace(/[^a-z0-9_]/g, "_");
+
+    // Map common CSV vendor values to yaml_key
+    var vendorMap = {
+      "aruba": "aruba_os", "arubaos": "aruba_os", "arubaos_ap": "aruba_ap_central_api",
+      "juniper": "juniper_junos", "junos": "juniper_junos",
+      "fortinet": "fortios", "fortios": "fortios",
+      "cisco": "cisco_iosxe", "cisco_iosxe": "cisco_iosxe",
+    };
+    vendor = vendorMap[vendor] || vendor;
+
+    var payload = {
+      vendor:   vendor,
+      ip:       row.ip ? row.ip.split("/")[0] : "",
+      user:     row.username || row.user || "",
+      password: row.password || "",
+      device_name: row.device_name || row.name || ("Device-" + (idx+1)),
+    };
+
+    fetch("/api/test-device", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(payload)
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      data.device_name = payload.device_name;
+      results.push(data);
+      done++;
+      updateProgress();
+      testNext(idx + 1);
+    })
+    .catch(function() {
+      results.push({ vendor: vendor, ip: payload.ip,
+                     device_name: payload.device_name,
+                     status: "error", message: "Request failed" });
+      done++;
+      updateProgress();
+      testNext(idx + 1);
+    });
+  }
+
+  updateProgress();
+  testNext(0);
+}
+
+function renderBatchResults(results) {
+  var ready   = results.filter(function(r) { return r.status === "ready"; }).length;
+  var partial = results.filter(function(r) { return r.status === "partial"; }).length;
+  var failed  = results.filter(function(r) { return r.status !== "ready" && r.status !== "partial"; }).length;
+
+  var html = "<div class=\"card\">" +
+    "<h2>Batch Test Results</h2>" +
+    "<div class=\"summary-bar\">" +
+    "<span class=\"badge badge-ok\">✅ Ready: " + ready + "</span>" +
+    "<span class=\"badge badge-warn\">⚠️ Partial: " + partial + "</span>" +
+    "<span class=\"badge badge-error\">❌ Failed: " + failed + "</span>" +
+    "<span style=\"margin-left:auto;font-size:12px\"><strong>" + ready + "/" + results.length + "</strong> ready to onboard</span>" +
+    "</div>";
+
+  results.forEach(function(r) {
+    html += renderResult(r, false);
+  });
+
+  html += "</div>";
+  document.getElementById("batchResults").innerHTML = html;
+}
+
+function loadVendorTable() {
+  var html = "<table><thead><tr><th>Vendor Key</th><th>Section</th><th>Type</th><th>Driver</th><th>Commands</th></tr></thead><tbody>";
+  Object.keys(vendors).sort().forEach(function(key) {
+    var v = vendors[key];
+    html += "<tr>" +
+      "<td><code>" + key + "</code></td>" +
+      "<td>" + v.section + "</td>" +
+      "<td>" + v.data_source + "</td>" +
+      "<td><code>" + (v.driver || "—") + "</code></td>" +
+      "<td>" + v.command_count + "</td>" +
+      "</tr>";
+  });
+  html += "</tbody></table>";
+  document.getElementById("vendorTable").innerHTML = html;
+}
+
+init();
+</script>
+</body>
+</html>

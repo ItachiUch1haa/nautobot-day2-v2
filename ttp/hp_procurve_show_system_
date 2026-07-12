@@ -1,0 +1,3 @@
+
+echo "=== TTP template created ==="
+cat /opt/nautobot/git/github_nautobot_day2/ttp/hp_procurve_show_system_\|_include_Serial.ttp

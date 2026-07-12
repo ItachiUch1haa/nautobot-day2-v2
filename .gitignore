@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.env
+.env
+venv/
+nautobot_ready_*.csv
+manifests/
+*.log

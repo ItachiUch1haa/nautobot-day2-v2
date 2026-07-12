@@ -1,0 +1,631 @@
+# vendor_commands.yaml
+# =====================================================================
+# CLI and API command map for multi-vendor network sync
+# =====================================================================
+# Structure:
+#   switches/      — SSH-based sync for network switches
+#   access_points/ — SSH or API-based sync for APs
+#   firewalls/     — SSH-based sync for firewalls
+#
+# To add a new vendor: copy the template block and fill in.
+# No Python code changes needed — the sync script reads this file.
+#
+# Vendor matrix alignment (vendor_matrix.py platform slugs):
+#   arubaos        → switches/aruba_os
+#   arubaoscx      → switches/aruba_aoscx
+#   junos          → switches/juniper_junos
+#   iosxe          → switches/cisco_iosxe
+#   ios            → switches/cisco_ios
+#   nxos           → switches/cisco_nxos
+#   fortios-switch → switches/fortinet_switch
+#   arubaos (ap)   → access_points/aruba_ap_aos10 (SSH) or aruba_ap_central_api (API)
+#   junos (ap)     → access_points/juniper_mist_ap
+#   fortios-ap     → access_points/fortinet_ap or fortinet_ap_manager_api
+#   clearpass      → access_points/aruba_clearpass_api
+#   fortios        → firewalls/fortios
+#   junos-srx      → firewalls/juniper_srx
+#   asa            → firewalls/cisco_asa
+#   ftd            → firewalls/cisco_ftd (SSH) or cisco_fmc_api (API)
+# =====================================================================
+
+
+# =====================================================================
+# SWITCHES — SSH sync
+# =====================================================================
+
+switches:
+
+  aruba_os:
+    # Aruba AOS (2930, 3810 series — KB.16.xx firmware)
+    # Netmiko driver: aruba_os
+    netmiko_device_type : "aruba_os"
+    secrets_group       : "aruba-ssh"
+    disable_paging      : "terminal length 0"
+    data_source         : "ssh"
+    commands:
+      vlans             : "show vlans"
+      interfaces        : "show interfaces brief"
+      ip_interfaces     : "show ip interface brief"
+      lldp_neighbors    : "show lldp info remote-device all"
+      version           : "show version"
+      mac_table         : "show mac-address"
+      system_info       : "show system information"
+    parsers:
+      vlans:
+        type            : "regex"
+        columns         : ["vlan_id", "name", "status", "ports"]
+        header_skip     : 2
+      interfaces:
+        type            : "regex"
+        columns         : ["port", "type", "enabled", "link", "speed", "duplex", "vlan", "mode"]
+        header_skip     : 3
+      ip_interfaces:
+        type            : "regex"
+        columns         : ["interface", "ip_address", "subnet_mask", "status"]
+        header_skip     : 2
+      lldp_neighbors:
+        type            : "regex"
+        columns         : ["local_port", "chassis_id", "port_id", "system_name", "system_descr"]
+        header_skip     : 3
+
+  aruba_aoscx:
+    # Aruba AOS-CX (6200, 6300, 8325 series)
+    # Netmiko driver: aruba_aoscx
+    netmiko_device_type : "aruba_aoscx"
+    secrets_group       : "aruba-ssh"
+    disable_paging      : ""
+    data_source         : "ssh"
+    commands:
+      vlans             : "show vlan"
+      interfaces        : "show interface brief"
+      ip_interfaces     : "show ip interface brief"
+      lldp_neighbors    : "show lldp neighbor-info"
+      version           : "show version"
+      mac_table         : "show mac-address-table"
+    parsers:
+      vlans:
+        type            : "regex"
+        columns         : ["vlan_id", "name", "status", "reason"]
+        header_skip     : 2
+      interfaces:
+        type            : "regex"
+        columns         : ["interface", "admin_state", "link_state", "speed", "duplex", "vlan", "type"]
+        header_skip     : 2
+      ip_interfaces:
+        type            : "regex"
+        columns         : ["interface", "ip_address", "prefix_len", "admin", "state", "type"]
+        header_skip     : 2
+      lldp_neighbors:
+        type            : "regex"
+        # LOCAL-PORT  CHASSIS-ID  PORT-ID  PORT-DESC  TTL  SYS-NAME
+        columns         : ["local_port", "chassis_id", "port_id", "port_desc", "ttl", "system_name"]
+        header_skip     : 3
+
+  juniper_junos:
+    # Juniper EX series switches
+    # Netmiko driver: juniper_junos
+    netmiko_device_type : "juniper_junos"
+    secrets_group       : "juniper-ssh"
+    disable_paging      : ""
+    data_source         : "ssh"
+    commands:
+      vlans             : "show vlans"
+      interfaces        : "show interfaces terse"
+      ip_interfaces     : "show interfaces routing"
+      lldp_neighbors    : "show lldp neighbors"
+      version           : "show version"
+      mac_table         : "show ethernet-switching table"
+      chassis_hardware  : "show chassis hardware"
+    parsers:
+      vlans:
+        type            : "regex"
+        columns         : ["name", "tag", "interfaces"]
+        header_skip     : 1
+      interfaces:
+        type            : "regex"
+        columns         : ["interface", "admin", "link", "proto", "local", "remote"]
+        header_skip     : 1
+      ip_interfaces:
+        type            : "regex"
+        columns         : ["interface", "ip_address", "prefix_len"]
+        header_skip     : 1
+      lldp_neighbors:
+        type            : "regex"
+        # Local Interface  Parent Interface  Chassis Id  Port info  System Name
+        columns         : ["local_port", "parent_interface", "chassis_id", "port_id", "system_name"]
+        header_skip     : 1
+
+  cisco_iosxe:
+    # Cisco IOS-XE (Catalyst 9200, 9300, 9400 series)
+    # Netmiko driver: cisco_ios
+    # Note: uses CDP as primary neighbor discovery, LLDP as fallback
+    # Note: enable mode may be required — set CISCO_ENABLE_PASS in env
+    netmiko_device_type : "cisco_ios"
+    secrets_group       : "cisco-ssh"
+    disable_paging      : "terminal length 0"
+    data_source         : "ssh"
+    commands:
+      vlans             : "show vlan brief"
+      interfaces        : "show interfaces status"
+      ip_interfaces     : "show ip interface brief"
+      lldp_neighbors    : "show lldp neighbors detail"
+      cdp_neighbors     : "show cdp neighbors detail"
+      version           : "show version"
+      mac_table         : "show mac address-table"
+    parsers:
+      vlans:
+        type            : "regex"
+        # VLAN  Name  Status  Ports
+        columns         : ["vlan_id", "name", "status", "ports"]
+        header_skip     : 2
+      interfaces:
+        type            : "regex"
+        # Port  Name  Status  Vlan  Duplex  Speed  Type
+        columns         : ["port", "name", "status", "vlan", "duplex", "speed", "type"]
+        header_skip     : 2
+      ip_interfaces:
+        type            : "regex"
+        # Interface  IP-Address  OK?  Method  Status  Protocol
+        columns         : ["interface", "ip_address", "ok", "method", "status", "protocol"]
+        header_skip     : 1
+      lldp_neighbors:
+        type            : "regex"
+        columns         : ["system_name", "local_port", "port_id", "system_descr",
+                           "mgmt_address", "capabilities"]
+        header_skip     : 0
+      cdp_neighbors:
+        type            : "regex"
+        # Device ID  Local Intf  Holdtme  Capability  Platform  Port ID
+        columns         : ["device_id", "local_port", "holdtime", "capability",
+                           "platform", "remote_port"]
+        header_skip     : 0
+
+  cisco_ios:
+    # Cisco IOS (Catalyst 2960, 3560, 3750 series)
+    # Netmiko driver: cisco_ios — same driver as IOS-XE
+    # Note: older IOS may not support LLDP — CDP is primary
+    netmiko_device_type : "cisco_ios"
+    secrets_group       : "cisco-ssh"
+    disable_paging      : "terminal length 0"
+    data_source         : "ssh"
+    commands:
+      vlans             : "show vlan brief"
+      interfaces        : "show interfaces status"
+      ip_interfaces     : "show ip interface brief"
+      lldp_neighbors    : "show lldp neighbors detail"
+      cdp_neighbors     : "show cdp neighbors detail"
+      version           : "show version"
+      mac_table         : "show mac address-table"
+    parsers:
+      vlans:
+        type            : "regex"
+        columns         : ["vlan_id", "name", "status", "ports"]
+        header_skip     : 2
+      interfaces:
+        type            : "regex"
+        columns         : ["port", "name", "status", "vlan", "duplex", "speed", "type"]
+        header_skip     : 2
+      ip_interfaces:
+        type            : "regex"
+        columns         : ["interface", "ip_address", "ok", "method", "status", "protocol"]
+        header_skip     : 1
+      lldp_neighbors:
+        type            : "regex"
+        columns         : ["system_name", "local_port", "port_id", "system_descr",
+                           "mgmt_address", "capabilities"]
+        header_skip     : 0
+      cdp_neighbors:
+        type            : "regex"
+        columns         : ["device_id", "local_port", "holdtime", "capability",
+                           "platform", "remote_port"]
+        header_skip     : 0
+
+  cisco_nxos:
+    # Cisco NX-OS (Nexus 5K, 7K, 9K series)
+    # Netmiko driver: cisco_nxos
+    netmiko_device_type : "cisco_nxos"
+    secrets_group       : "cisco-ssh"
+    disable_paging      : "terminal length 0"
+    data_source         : "ssh"
+    commands:
+      vlans             : "show vlan brief"
+      interfaces        : "show interface status"
+      ip_interfaces     : "show ip interface brief"
+      lldp_neighbors    : "show lldp neighbors detail"
+      cdp_neighbors     : "show cdp neighbors detail"
+      version           : "show version"
+      mac_table         : "show mac address-table"
+    parsers:
+      vlans:
+        type            : "regex"
+        columns         : ["vlan_id", "name", "status", "ports"]
+        header_skip     : 2
+      interfaces:
+        type            : "regex"
+        columns         : ["port", "name", "status", "vlan", "duplex", "speed", "type"]
+        header_skip     : 2
+      ip_interfaces:
+        type            : "regex"
+        columns         : ["interface", "ip_address", "ok", "method", "status", "protocol"]
+        header_skip     : 1
+      lldp_neighbors:
+        type            : "regex"
+        columns         : ["system_name", "local_port", "port_id", "system_descr",
+                           "mgmt_address", "capabilities"]
+        header_skip     : 0
+      cdp_neighbors:
+        type            : "regex"
+        columns         : ["device_id", "local_port", "holdtime", "capability",
+                           "platform", "remote_port"]
+        header_skip     : 0
+
+  fortinet_switch:
+    # Fortinet FortiSwitch (managed via FortiLink or standalone SSH)
+    # Netmiko driver: fortinet
+    # Note: FortiSwitch CLI is similar to FortiGate — switch-specific cmds
+    # Note: LLDP enabled by default on FortiSwitch
+    netmiko_device_type : "fortinet"
+    secrets_group       : "fortinet-ssh"
+    disable_paging      : ""
+    data_source         : "ssh"
+    commands:
+      vlans             : "get switch vlan list"
+      interfaces        : "get switch interface list"
+      ip_interfaces     : "get switch interface detail"
+      lldp_neighbors    : "diagnose switch lldp neighbors-summary"
+      lldp_detail       : "diagnose switch lldp neighbors-detail"
+      version           : "get system status"
+      mac_table         : "diagnose switch mac list"
+    parsers:
+      vlans:
+        type            : "regex"
+        columns         : ["vlan_id", "name", "description"]
+        header_skip     : 1
+      interfaces:
+        type            : "regex"
+        columns         : ["interface", "vlan", "type", "status"]
+        header_skip     : 1
+      lldp_neighbors:
+        type            : "regex"
+        columns         : ["local_port", "chassis_id", "port_id", "system_name", "capabilities"]
+        header_skip     : 1
+
+  # -----------------------------------------------------------------------
+  # TEMPLATE — copy to add a new switch vendor
+  # -----------------------------------------------------------------------
+  # new_switch_vendor:
+  #   netmiko_device_type : "vendor_os"
+  #   secrets_group       : "vendor-ssh"
+  #   disable_paging      : "terminal length 0"
+  #   data_source         : "ssh"
+  #   commands:
+  #     vlans             : "show vlan"
+  #     interfaces        : "show interface status"
+  #     ip_interfaces     : "show ip interface brief"
+  #     lldp_neighbors    : "show lldp neighbors detail"
+  #     version           : "show version"
+  #   parsers:
+  #     vlans:
+  #       type            : "regex"
+  #       columns         : ["vlan_id", "name", "status"]
+  #       header_skip     : 2
+  #     lldp_neighbors:
+  #       type            : "regex"
+  #       columns         : ["local_port", "chassis_id", "port_id", "system_name"]
+  #       header_skip     : 2
+
+
+# =====================================================================
+# ACCESS POINTS — SSH and API sync
+# =====================================================================
+
+access_points:
+
+  aruba_ap_aos10:
+    # Aruba Instant AP (AOS-10) — standalone SSH mode
+    # Model: AP-505, AP-515, AP-535, AP-555 etc.
+    # Note: LLDP command differs from switch — uses 'show ap debug lldp'
+    # Note: AP reports its uplink switch as the LLDP neighbor
+    netmiko_device_type : "aruba_os"
+    secrets_group       : "aruba-ssh"
+    disable_paging      : ""
+    data_source         : "ssh"
+    commands:
+      version           : "show version"
+      interfaces        : "show interface"
+      lldp_neighbors    : "show ap debug lldp neighbor"
+      lldp_detail       : "show ap debug lldp info"
+      uplink            : "show uplink"
+    parsers:
+      interfaces:
+        type            : "regex"
+        columns         : ["interface", "status", "protocol", "hw_type", "mac"]
+        header_skip     : 0
+      lldp_neighbors:
+        type            : "regex"
+        columns         : ["interface", "neighbor_id", "capabilities",
+                           "remote_interface", "expiry_time"]
+        header_skip     : 2
+      lldp_detail:
+        type            : "regex"
+        columns         : ["ap_name", "interface_name", "neighbor_id", "remote_interface",
+                           "mau", "power_supply", "neighbor_vlan", "neighbor_basemac",
+                           "neighbor_hostname", "neighbor_capability", "management_address",
+                           "firmware_version", "power_request", "power_allocated",
+                           "enabled_capability"]
+        header_skip     : 1
+
+  aruba_ap_central_api:
+    # Aruba AP — managed via Aruba Central API (cloud-managed)
+    # Primary method when APs are managed by Aruba Central
+    # API endpoint: /monitoring/v2/aps
+    data_source         : "api"
+    api_type            : "aruba_central"
+    secrets_group       : "aruba-central-api"
+    api_endpoints:
+      devices           : "/monitoring/v2/aps"
+      lldp_neighbors    : "/monitoring/v1/aps/{serial}/neighbors"
+      interfaces        : "/monitoring/v2/aps/{serial}/ports"
+      clients           : "/monitoring/v2/aps/{serial}/clients"
+      rf_summary        : "/monitoring/v2/aps/{serial}/radio_summary"
+
+  juniper_mist_ap:
+    # Juniper Mist AP — cloud-only, NO SSH support
+    # All data fetched via Mist Cloud API
+    # Reference: https://api.mist.com/api/v1/
+    data_source         : "api"
+    api_type            : "juniper_mist"
+    secrets_group       : "juniper-mist-api"
+    api_endpoints:
+      devices           : "/sites/{site_id}/devices"
+      lldp_neighbors    : "/sites/{site_id}/devices/{device_id}/lldp_neighbors"
+      clients           : "/sites/{site_id}/stats/clients"
+      events            : "/sites/{site_id}/devices/events"
+      stats             : "/sites/{site_id}/stats/devices"
+
+  fortinet_ap_ssh:
+    # Fortinet FortiAP — direct SSH fallback
+    # Used when FortiManager is unavailable
+    # Note: Most FortiAP data comes via FortiManager API (preferred)
+    netmiko_device_type : "fortinet"
+    secrets_group       : "fortinet-ssh"
+    disable_paging      : ""
+    data_source         : "ssh"
+    commands:
+      version           : "get system status"
+      interfaces        : "get system interface"
+      lldp_neighbors    : "diagnose lldprx neighbor summary"
+      ap_status         : "get wireless-controller wtp"
+    parsers:
+      interfaces:
+        type            : "regex"
+        columns         : ["interface", "ip", "mask", "status", "type"]
+        header_skip     : 0
+      lldp_neighbors:
+        type            : "regex"
+        columns         : ["index", "local_port", "ttl", "chassis_mac",
+                           "chassis_id", "remote_port", "system_name"]
+        header_skip     : 0
+
+  fortinet_ap_manager_api:
+    # Fortinet FortiAP — managed via FortiManager API (preferred)
+    # Reference: FortiManager API v7.x
+    data_source         : "api"
+    api_type            : "fortinet_manager"
+    secrets_group       : "fortinet-manager-api"
+    api_endpoints:
+      devices           : "/dvmdb/device"
+      ap_list           : "/wireless/ap"
+      interfaces        : "/pm/config/device/{device}/global/system/interface"
+      lldp_neighbors    : "/pm/config/device/{device}/global/system/lldp/network-policy"
+      status            : "/sys/status"
+
+  aruba_clearpass_api:
+    # Aruba ClearPass NAC — API only (no useful SSH CLI for sync)
+    # Reference: ClearPass REST API v6.x
+    data_source         : "api"
+    api_type            : "aruba_clearpass"
+    secrets_group       : "aruba-clearpass-api"
+    api_endpoints:
+      endpoints         : "/api/endpoint"
+      network_devices   : "/api/network-device"
+      policy_servers    : "/api/server/configuration/summary"
+      active_sessions   : "/api/session"
+
+  # -----------------------------------------------------------------------
+  # TEMPLATE — copy to add a new AP vendor
+  # -----------------------------------------------------------------------
+  # new_ap_vendor:
+  #   netmiko_device_type : "vendor_os"   # SSH only
+  #   secrets_group       : "vendor-ssh"
+  #   data_source         : "ssh"         # or "api" or "both"
+  #   commands:
+  #     version           : "show version"
+  #     lldp_neighbors    : "show lldp neighbor"
+  #     interfaces        : "show interface"
+  #   parsers:
+  #     lldp_neighbors:
+  #       type            : "regex"
+  #       columns         : ["local_port", "chassis_id", "port_id", "system_name"]
+  #       header_skip     : 2
+
+
+# =====================================================================
+# FIREWALLS — SSH and API sync
+# =====================================================================
+
+firewalls:
+
+  fortios:
+    # Fortinet FortiGate — FortiOS SSH
+    # Netmiko driver: fortinet
+    # Note: LLDP must be enabled globally first:
+    #   config system global
+    #     set lldp-reception enable
+    #     set lldp-transmission enable
+    #   end
+    netmiko_device_type : "fortinet"
+    secrets_group       : "fortinet-ssh"
+    disable_paging      : ""
+    data_source         : "ssh"
+    commands:
+      version           : "get system status"
+      interfaces        : "get system interface"
+      routing_table     : "get router info routing-table all"
+      arp_table         : "get system arp"
+      lldp_neighbors    : "diagnose lldprx neighbor summary"
+      lldp_detail       : "diagnose lldprx neighbor details"
+      ha_status         : "get system ha status"
+      vdom_list         : "show system vdom"
+    parsers:
+      interfaces:
+        type            : "regex"
+        # == [port1] ==
+        # ip: 10.0.0.1 255.255.255.0
+        # status: up
+        columns         : ["interface", "ip", "mask", "status", "type"]
+        header_skip     : 0
+      lldp_neighbors:
+        type            : "regex"
+        # <index> port '<local_port>' <ttl> mac <chassis_mac> chassis <chassis_id>
+        columns         : ["index", "local_port", "ttl", "chassis_mac",
+                           "chassis_id", "remote_port", "system_name"]
+        header_skip     : 0
+      lldp_detail:
+        type            : "regex"
+        columns         : ["key", "value"]
+        header_skip     : 0
+
+  juniper_srx:
+    # Juniper SRX series firewalls
+    # Netmiko driver: juniper_junos — same as EX switches
+    # Note: same Junos CLI, SRX-specific security zone commands added
+    netmiko_device_type : "juniper_junos"
+    secrets_group       : "juniper-ssh"
+    disable_paging      : ""
+    data_source         : "ssh"
+    commands:
+      version           : "show version"
+      interfaces        : "show interfaces terse"
+      ip_interfaces     : "show interfaces routing"
+      lldp_neighbors    : "show lldp neighbors"
+      routing_table     : "show route"
+      security_zones    : "show security zones"
+      arp_table         : "show arp"
+    parsers:
+      interfaces:
+        type            : "regex"
+        columns         : ["interface", "admin", "link", "proto", "local", "remote"]
+        header_skip     : 1
+      ip_interfaces:
+        type            : "regex"
+        columns         : ["interface", "ip_address", "prefix_len"]
+        header_skip     : 1
+      lldp_neighbors:
+        type            : "regex"
+        columns         : ["local_port", "parent_interface", "chassis_id",
+                           "port_id", "system_name"]
+        header_skip     : 1
+      routing_table:
+        type            : "regex"
+        columns         : ["destination", "protocol", "preference",
+                           "metric", "next_hop", "interface"]
+        header_skip     : 2
+
+  cisco_asa:
+    # Cisco ASA firewall (5506, 5508, 5516 series)
+    # Netmiko driver: cisco_asa
+    # Note: ASA uses 'terminal pager 0' not 'terminal length 0'
+    # Note: enable mode required — set CISCO_ENABLE_PASS_<SLUG> in env
+    netmiko_device_type : "cisco_asa"
+    secrets_group       : "cisco-ssh"
+    disable_paging      : "terminal pager 0"
+    data_source         : "ssh"
+    commands:
+      version           : "show version"
+      interfaces        : "show interface"
+      ip_interfaces     : "show ip address"
+      lldp_neighbors    : "show lldp neighbors detail"
+      routing_table     : "show route"
+      arp_table         : "show arp"
+      nameif            : "show nameif"
+    parsers:
+      interfaces:
+        type            : "regex"
+        columns         : ["interface", "status", "protocol", "description"]
+        header_skip     : 0
+      ip_interfaces:
+        type            : "regex"
+        columns         : ["interface", "ip_address", "subnet_mask", "method"]
+        header_skip     : 1
+      lldp_neighbors:
+        type            : "regex"
+        columns         : ["system_name", "local_port", "port_id",
+                           "system_descr", "mgmt_address"]
+        header_skip     : 0
+      routing_table:
+        type            : "regex"
+        columns         : ["code", "network", "mask", "via", "interface"]
+        header_skip     : 0
+
+  cisco_ftd:
+    # Cisco FTD (Firepower Threat Defense) — direct SSH
+    # Netmiko driver: cisco_ftd
+    # Note: FTD has limited CLI vs ASA — use FMC API for full config data
+    # Note: clish mode used for basic show commands
+    netmiko_device_type : "cisco_ftd"
+    secrets_group       : "cisco-ssh"
+    disable_paging      : ""
+    data_source         : "ssh"
+    commands:
+      version           : "show version"
+      interfaces        : "show interface"
+      ip_interfaces     : "show ip address"
+      routing_table     : "show route"
+      lldp_neighbors    : "show lldp neighbors detail"
+    parsers:
+      interfaces:
+        type            : "regex"
+        columns         : ["interface", "status", "protocol", "description"]
+        header_skip     : 0
+      ip_interfaces:
+        type            : "regex"
+        columns         : ["interface", "ip_address", "subnet_mask", "method"]
+        header_skip     : 1
+      lldp_neighbors:
+        type            : "regex"
+        columns         : ["system_name", "local_port", "port_id",
+                           "system_descr", "mgmt_address"]
+        header_skip     : 0
+
+  cisco_fmc_api:
+    # Cisco FMC (Firepower Management Center) — REST API
+    # Used for FTD devices managed by FMC
+    # Reference: FMC REST API v6.7+
+    data_source         : "api"
+    api_type            : "cisco_fmc"
+    secrets_group       : "cisco-fmc-api"
+    api_endpoints:
+      devices           : "/api/fmc_config/v1/domain/{domain_uuid}/devices/devicerecords"
+      interfaces        : "/api/fmc_config/v1/domain/{domain_uuid}/devices/devicerecords/{device_uuid}/physicalinterfaces"
+      routing           : "/api/fmc_config/v1/domain/{domain_uuid}/devices/devicerecords/{device_uuid}/routing/ipv4staticroutes"
+      status            : "/api/fmc_platform/v1/info/serverversion"
+
+  # -----------------------------------------------------------------------
+  # TEMPLATE — copy to add a new firewall vendor
+  # -----------------------------------------------------------------------
+  # new_fw_vendor:
+  #   netmiko_device_type : "vendor_os"
+  #   secrets_group       : "vendor-ssh"
+  #   disable_paging      : "terminal length 0"
+  #   data_source         : "ssh"
+  #   commands:
+  #     version           : "show version"
+  #     interfaces        : "show interface brief"
+  #     lldp_neighbors    : "show lldp neighbors"
+  #     routing_table     : "show ip route"
+  #   parsers:
+  #     lldp_neighbors:
+  #       type            : "regex"
+  #       columns         : ["local_port", "chassis_id", "port_id", "system_name"]
+  #       header_skip     : 2

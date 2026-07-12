@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nautobot — Site Onboarding Portal</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+       font-size: 14px; background: #f0f2f5; color: #1a1a2e; }
+.header { background: #1B3A6B; color: white; padding: 14px 24px;
+          display: flex; align-items: center; gap: 12px; }
+.header h1 { font-size: 18px; font-weight: 600; }
+.header span { font-size: 12px; opacity: .7; }
+.container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+.card { background: white; border-radius: 10px; border: 1px solid #e2e6ea;
+        padding: 20px; margin-bottom: 20px; }
+.card h2 { font-size: 14px; font-weight: 600; color: #1B3A6B;
+           margin-bottom: 14px; padding-bottom: 8px;
+           border-bottom: 2px solid #E6F1FB; }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+label { display: block; font-size: 12px; font-weight: 500;
+        color: #5F5E5A; margin-bottom: 4px; }
+select, input[type=text] {
+  width: 100%; padding: 8px 10px; border: 1px solid #d1d5db;
+  border-radius: 6px; font-size: 13px; color: #1a1a2e;
+  background: white; transition: border-color .15s; }
+select:focus, input:focus { outline: none; border-color: #1B3A6B; }
+.btn { padding: 8px 18px; border-radius: 6px; border: none;
+       font-size: 13px; font-weight: 500; cursor: pointer; transition: all .15s; }
+.btn-primary { background: #1B3A6B; color: white; }
+.btn-primary:hover { background: #152d54; }
+.btn-success { background: #0F6E56; color: white; }
+.btn-success:hover { background: #0a5240; }
+.btn-outline { background: white; color: #1B3A6B; border: 1px solid #1B3A6B; }
+.btn-outline:hover { background: #E6F1FB; }
+.btn-sm { padding: 4px 10px; font-size: 12px; }
+.btn-danger { background: #A32D2D; color: white; }
+.tabs { display: flex; gap: 0; border-bottom: 2px solid #e2e6ea; margin-bottom: 20px; }
+.tab { padding: 10px 20px; cursor: pointer; font-size: 13px; font-weight: 500;
+       color: #5F5E5A; border-bottom: 2px solid transparent; margin-bottom: -2px; }
+.tab.active { color: #1B3A6B; border-bottom-color: #1B3A6B; }
+.device-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.device-table th { background: #1B3A6B; color: white; padding: 8px 10px;
+                   text-align: left; font-weight: 500; }
+.device-table td { padding: 7px 10px; border-bottom: 1px solid #f0f2f5; }
+.device-table tr:nth-child(even) td { background: #fafbfc; }
+.device-table tr:hover td { background: #E6F1FB; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 4px;
+         font-size: 11px; font-weight: 500; }
+.badge-ok    { background: #E1F5EE; color: #0F6E56; }
+.badge-fixed { background: #FAEEDA; color: #BA7517; }
+.badge-warn  { background: #FFF3E0; color: #E65100; }
+.badge-error { background: #FCEBEB; color: #A32D2D; }
+.summary-bar { display: flex; gap: 16px; padding: 12px 16px;
+               background: #f8f9fa; border-radius: 8px; margin-bottom: 16px;
+               font-size: 13px; flex-wrap: wrap; }
+.alert { padding: 10px 14px; border-radius: 6px; font-size: 13px; margin-bottom: 12px; }
+.alert-info  { background: #E6F1FB; color: #1B3A6B; border: 1px solid #B5D4F4; }
+.alert-warn  { background: #FAEEDA; color: #633806; border: 1px solid #FAC775; }
+.alert-error { background: #FCEBEB; color: #A32D2D; border: 1px solid #F7C1C1; }
+.alert-ok    { background: #E1F5EE; color: #085041; border: 1px solid #9FE1CB; }
+.step-indicator { display: flex; gap: 0; margin-bottom: 24px; }
+.step { flex: 1; padding: 10px; text-align: center; font-size: 12px; font-weight: 500;
+        background: #f0f2f5; color: #888; border-right: 1px solid #e2e6ea; }
+.step:last-child { border-right: none; }
+.step.active { background: #E6F1FB; color: #1B3A6B; }
+.step.done   { background: #E1F5EE; color: #0F6E56; }
+.field-group { margin-bottom: 12px; }
+.actions { display: flex; gap: 10px; align-items: center; margin-top: 16px; }
+#csvPreview { max-height: 400px; overflow-y: auto; }
+.notes-col { font-size: 11px; color: #888; max-width: 200px;
+             white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>Nautobot &mdash; Site Onboarding Portal</h1>
+    <span>Phase 4 &mdash; Device data entry and CSV validation</span>
+  </div>
+</div>
+
+<div class="container">
+
+  <div class="step-indicator">
+    <div class="step active" id="step1-ind">1. Site Config</div>
+    <div class="step" id="step2-ind">2. Device Data</div>
+    <div class="step" id="step3-ind">3. Validate</div>
+    <div class="step" id="step4-ind">4. Generate CSV</div>
+  </div>
+
+  <!-- STEP 1 -->
+  <div id="step1" class="card">
+    <h2>Step 1 &mdash; Site Configuration</h2>
+    <div class="grid-2">
+      <div class="field-group">
+        <label>Tenant *</label>
+        <select id="tenantSelect" onchange="onTenantChange()">
+          <option value="">Loading tenants...</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label>Site Name *</label>
+        <input type="text" id="siteName" placeholder="e.g. Acme-BLR-03">
+      </div>
+    </div>
+    <div class="grid-3">
+      <div class="field-group">
+        <label>Region *</label>
+        <input type="text" id="regionInput" placeholder="e.g. Asia-Pacific">
+      </div>
+      <div class="field-group">
+        <label>Country *</label>
+        <input type="text" id="countryInput" placeholder="e.g. India">
+      </div>
+      <div class="field-group">
+        <label>State / Province *</label>
+        <input type="text" id="stateInput" placeholder="e.g. Karnataka">
+      </div>
+    </div>
+    <div class="grid-2">
+      <div class="field-group">
+        <label>City *</label>
+        <input type="text" id="cityInput" placeholder="e.g. Bangalore">
+      </div>
+      <div class="field-group">
+        <label>Site Type *</label>
+        <select id="siteTypeSelect">
+          <option value="">Loading...</option>
+        </select>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary" onclick="goStep2()">Next &mdash; Add Devices</button>
+    </div>
+  </div>
+
+  <!-- STEP 2 -->
+  <div id="step2" class="card" style="display:none">
+    <h2>Step 2 &mdash; Device Data</h2>
+    <div class="tabs">
+      <div class="tab active" id="tab-interactive" onclick="switchTab('interactive')">Interactive Entry</div>
+      <div class="tab" id="tab-csv" onclick="switchTab('csv')">CSV Upload</div>
+    </div>
+
+    <div id="tabInteractive">
+      <div class="alert alert-info">Add devices row by row. Dropdowns cascade based on vendor and role.</div>
+      <table class="device-table" id="deviceTable">
+        <thead>
+          <tr>
+            <th>Device Name</th><th>Role</th><th>Vendor</th>
+            <th>Platform</th><th>Model</th><th>IP / Prefix</th>
+            <th>Managed By</th><th>Serial</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="deviceRows"></tbody>
+      </table>
+      <div class="actions" style="margin-top:12px">
+        <button class="btn btn-outline btn-sm" onclick="addDeviceRow()">+ Add Device</button>
+        <button class="btn btn-outline btn-sm" onclick="clearAllRows()">Clear All</button>
+      </div>
+    </div>
+
+    <div id="tabCsv" style="display:none">
+      <div class="alert alert-info">
+        Upload a CSV with columns: device_name, role, vendor, model, ip, managed_by, serial
+      </div>
+      <div style="margin:12px 0">
+        <input type="file" id="csvFile" accept=".csv"
+               onchange="handleCsvUpload(event)" style="font-size:13px">
+      </div>
+    </div>
+
+    <div class="actions" style="margin-top:16px">
+      <button class="btn btn-outline" onclick="goStep1()">Back</button>
+      <button class="btn btn-primary" onclick="goStep3()">Validate Devices</button>
+    </div>
+  </div>
+
+  <!-- STEP 3 -->
+  <div id="step3" class="card" style="display:none">
+    <h2>Step 3 &mdash; Validation Results</h2>
+    <div id="validationSummary"></div>
+    <div id="validationTable"></div>
+    <div class="actions">
+      <button class="btn btn-outline" onclick="goStep2()">Back</button>
+      <button class="btn btn-success" id="generateBtn" onclick="generateReadyCsv()">Generate nautobot_ready CSV</button>
+    </div>
+  </div>
+
+  <!-- STEP 4 -->
+  <div id="step4" class="card" style="display:none">
+    <h2>Step 4 &mdash; Ready for Onboarding</h2>
+    <div id="generateResult"></div>
+    <div class="actions" style="margin-top:16px">
+      <button class="btn btn-outline" onclick="goStep1()">Start New Site</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+var state = {
+  tenant: null,
+  siteConfig: null,
+  devices: [],
+  validationRows: [],
+  activeTab: "interactive",
+  roles: [],
+  vendors: []
+};
+
+function init() {
+  fetch("/api/tenants")
+    .then(function(r) { return r.json(); })
+    .then(function(tenants) {
+      var sel = document.getElementById("tenantSelect");
+      sel.innerHTML = "<option value=\"\">Select tenant...</option>";
+      tenants.forEach(function(t) {
+        var opt = document.createElement("option");
+        opt.value = t.slug;
+        opt.text  = t.name;
+        sel.appendChild(opt);
+      });
+    });
+
+  fetch("/api/site-types")
+    .then(function(r) { return r.json(); })
+    .then(function(types) {
+      var sel = document.getElementById("siteTypeSelect");
+      sel.innerHTML = "";
+      types.forEach(function(t) {
+        var opt = document.createElement("option");
+        opt.value = t;
+        opt.text  = t;
+        sel.appendChild(opt);
+      });
+    });
+
+  fetch("/api/vendors")
+    .then(function(r) { return r.json(); })
+    .then(function(v) { state.vendors = v; });
+
+  fetch("/api/roles")
+    .then(function(r) { return r.json(); })
+    .then(function(r) { state.roles = r; });
+}
+
+function onTenantChange() {
+  var sel  = document.getElementById("tenantSelect");
+  var name = sel.options[sel.selectedIndex].text;
+  state.tenant = { slug: sel.value, name: name };
+}
+
+function setStep(n) {
+  [1,2,3,4].forEach(function(i) {
+    document.getElementById("step" + i).style.display = (i === n) ? "block" : "none";
+    var ind = document.getElementById("step" + i + "-ind");
+    if (i === n)      ind.className = "step active";
+    else if (i < n)   ind.className = "step done";
+    else              ind.className = "step";
+  });
+}
+
+function goStep1() { setStep(1); }
+
+function goStep2() {
+  var tenant = document.getElementById("tenantSelect").value;
+  if (!tenant) { alert("Select a tenant first"); return; }
+  state.siteConfig = {
+    tenant_slug: tenant,
+    region:    document.getElementById("regionInput").value.trim(),
+    country:   document.getElementById("countryInput").value.trim(),
+    state:     document.getElementById("stateInput").value.trim(),
+    city:      document.getElementById("cityInput").value.trim(),
+    site_name: document.getElementById("siteName").value.trim(),
+    site_type: document.getElementById("siteTypeSelect").value
+  };
+  for (var k in state.siteConfig) {
+    if (!state.siteConfig[k]) { alert("Fill all site config fields"); return; }
+  }
+  setStep(2);
+  if (document.getElementById("deviceRows").children.length === 0) {
+    addDeviceRow();
+  }
+}
+
+function goStep3() {
+  collectDevices();
+  if (state.devices.length === 0) { alert("Add at least one device"); return; }
+  validateDevices();
+  setStep(3);
+}
+
+function switchTab(tab) {
+  state.activeTab = tab;
+  document.getElementById("tabInteractive").style.display = (tab === "interactive") ? "" : "none";
+  document.getElementById("tabCsv").style.display         = (tab === "csv") ? "" : "none";
+  document.getElementById("tab-interactive").className = "tab" + (tab === "interactive" ? " active" : "");
+  document.getElementById("tab-csv").className         = "tab" + (tab === "csv" ? " active" : "");
+}
+
+var rowId = 0;
+
+function addDeviceRow() {
+  var id = ++rowId;
+  var tr = document.createElement("tr");
+  tr.id  = "row-" + id;
+
+  var vOpts = state.vendors.map(function(v) {
+    return "<option value=\"" + v.slug + "\">" + v.label + "</option>";
+  }).join("");
+  var rOpts = state.roles.map(function(r) {
+    return "<option value=\"" + r.name + "\">" + r.name + "</option>";
+  }).join("");
+
+  tr.innerHTML =
+    "<td><input type=\"text\" style=\"width:110px;padding:4px 6px;font-size:12px\" placeholder=\"SW-BLR-01\" id=\"dn-" + id + "\"></td>" +
+    "<td><select style=\"width:130px;padding:4px 6px;font-size:12px\" id=\"role-" + id + "\" onchange=\"onRoleChange(" + id + ")\">" + rOpts + "</select></td>" +
+    "<td><select style=\"width:100px;padding:4px 6px;font-size:12px\" id=\"vendor-" + id + "\" onchange=\"onVendorChange(" + id + ")\">" + vOpts + "</select></td>" +
+    "<td><select style=\"width:120px;padding:4px 6px;font-size:12px\" id=\"platform-" + id + "\"></select></td>" +
+    "<td><input type=\"text\" style=\"width:80px;padding:4px 6px;font-size:12px\" placeholder=\"2930F\" id=\"model-" + id + "\"></td>" +
+    "<td><input type=\"text\" style=\"width:110px;padding:4px 6px;font-size:12px\" placeholder=\"10.1.1.1/24\" id=\"ip-" + id + "\" oninput=\"validateIpField(" + id + ")\"></td>" +
+    "<td><select style=\"width:110px;padding:4px 6px;font-size:12px\" id=\"mb-" + id + "\"></select></td>" +
+    "<td><input type=\"text\" style=\"width:80px;padding:4px 6px;font-size:12px\" placeholder=\"optional\" id=\"serial-" + id + "\"></td>" +
+    "<td><button class=\"btn btn-danger btn-sm\" onclick=\"removeRow(" + id + ")\">X</button></td>";
+
+  document.getElementById("deviceRows").appendChild(tr);
+  loadPlatforms(id);
+  loadManagedBy(id);
+}
+
+function onVendorChange(id) { loadPlatforms(id); loadManagedBy(id); }
+function onRoleChange(id)   { loadPlatforms(id); loadManagedBy(id); }
+
+function loadPlatforms(id) {
+  var vendor = document.getElementById("vendor-" + id);
+  var role   = document.getElementById("role-" + id);
+  if (!vendor || !role) return;
+  fetch("/api/vendor-platforms/" + vendor.value + "/" + role.value)
+    .then(function(r) { return r.json(); })
+    .then(function(platforms) {
+      var sel = document.getElementById("platform-" + id);
+      if (!sel) return;
+      sel.innerHTML = platforms.map(function(p) {
+        return "<option value=\"" + p.slug + "\"" + (p.default ? " selected" : "") + ">" + p.label + "</option>";
+      }).join("");
+    });
+}
+
+function loadManagedBy(id) {
+  var vendor = document.getElementById("vendor-" + id);
+  var role   = document.getElementById("role-" + id);
+  if (!vendor || !role) return;
+  fetch("/api/managed-by/" + vendor.value + "/" + role.value)
+    .then(function(r) { return r.json(); })
+    .then(function(methods) {
+      var sel = document.getElementById("mb-" + id);
+      if (!sel) return;
+      sel.innerHTML = methods.map(function(m) {
+        return "<option value=\"" + m.value + "\">" + m.label + "</option>";
+      }).join("");
+    });
+}
+
+function validateIpField(id) {
+  var input = document.getElementById("ip-" + id);
+  if (!input) return;
+  var val   = input.value.trim();
+  if (!val) { input.style.borderColor = ""; return; }
+  var valid = /^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\/[0-9]{1,2}$/.test(val);
+  input.style.borderColor = valid ? "#0F6E56" : "#A32D2D";
+}
+
+function removeRow(id) {
+  var row = document.getElementById("row-" + id);
+  if (row) row.remove();
+}
+
+function clearAllRows() {
+  document.getElementById("deviceRows").innerHTML = "";
+  rowId = 0;
+}
+
+function collectDevices() {
+  state.devices = [];
+  var rows = document.querySelectorAll("#deviceRows tr");
+  rows.forEach(function(tr) {
+    var id = tr.id.replace("row-", "");
+    var dn = document.getElementById("dn-" + id);
+    if (!dn || !dn.value.trim()) return;
+    state.devices.push({
+      device_name: dn.value.trim(),
+      role:        (document.getElementById("role-" + id) || {}).value || "",
+      vendor:      (document.getElementById("vendor-" + id) || {}).value || "",
+      platform:    (document.getElementById("platform-" + id) || {}).value || "",
+      model:       (document.getElementById("model-" + id) || {value:""}).value.trim(),
+      ip:          (document.getElementById("ip-" + id) || {value:""}).value.trim(),
+      managed_by:  (document.getElementById("mb-" + id) || {value:"ssh"}).value || "ssh",
+      serial:      (document.getElementById("serial-" + id) || {value:""}).value.trim(),
+      tenant_slug: state.tenant ? state.tenant.slug : ""
+    });
+  });
+}
+
+function handleCsvUpload(event) {
+  var file = event.target.files[0];
+  if (!file) return;
+  var formData = new FormData();
+  formData.append("file", file);
+  formData.append("tenant_slug", state.tenant ? state.tenant.slug : "");
+  fetch("/api/validate-csv", { method: "POST", body: formData })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.error) { alert(data.error); return; }
+      state.validationRows = data.rows;
+      showValidationResults(data.rows, data.summary);
+      setStep(3);
+    });
+}
+
+function validateDevices() {
+  var results  = [];
+  var promises = state.devices.map(function(dev) {
+    return fetch("/api/validate-row", {
+      method:  "POST",
+      headers: {"Content-Type": "application/json"},
+      body:    JSON.stringify(dev)
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      results.push(Object.assign({}, dev, data, {
+        vendor:     data.vendor_norm     || dev.vendor,
+        role:       data.role_norm       || dev.role,
+        managed_by: data.managed_by_norm || dev.managed_by,
+        platform:   data.platform        || dev.platform
+      }));
+    });
+  });
+
+  Promise.all(promises).then(function() {
+    state.validationRows = results;
+    var summary = {
+      total:  results.length,
+      ok:     results.filter(function(r) { return r.status === "ok"; }).length,
+      warn:   results.filter(function(r) { return r.status === "warn"; }).length,
+      errors: results.filter(function(r) { return r.status === "error"; }).length,
+      ready:  results.filter(function(r) { return r.status !== "error"; }).length
+    };
+    showValidationResults(results, summary);
+  });
+}
+
+function showValidationResults(rows, summary) {
+  var summaryDiv = document.getElementById("validationSummary");
+  var okMsg      = summary.errors === 0
+    ? "<div class=\"alert alert-ok\">All devices validated. Ready to generate CSV.</div>"
+    : "<div class=\"alert alert-warn\">" + summary.errors + " errors found. Fix before generating CSV.</div>";
+
+  summaryDiv.innerHTML =
+    "<div class=\"summary-bar\">" +
+    "<span class=\"badge badge-ok\">OK " + summary.ok + "</span>" +
+    "<span class=\"badge badge-warn\">Warnings " + summary.warn + "</span>" +
+    "<span class=\"badge badge-error\">Errors " + summary.errors + "</span>" +
+    "<span style=\"margin-left:auto\"><strong>" + summary.ready + "/" + summary.total + "</strong> ready</span>" +
+    "</div>" + okMsg;
+
+  var html = "<div id=\"csvPreview\"><table class=\"device-table\"><thead><tr>" +
+    "<th>#</th><th>Device</th><th>Vendor</th><th>Role</th><th>Platform</th>" +
+    "<th>IP</th><th>Managed By</th><th>Secrets Group</th><th>Status</th><th>Notes</th>" +
+    "</tr></thead><tbody>";
+
+  rows.forEach(function(r, i) {
+    var bc   = r.status === "ok" ? "badge-ok" : r.status === "warn" ? "badge-warn" : "badge-error";
+    var icon = r.status === "ok" ? "OK" : r.status === "warn" ? "WARN" : "ERROR";
+    var notes = [].concat(r.issues || [], r.warnings || [], r.fixes || []).join(" | ");
+    html += "<tr>" +
+      "<td>" + (i+1) + "</td>" +
+      "<td>" + (r.device_name || "") + "</td>" +
+      "<td>" + (r.vendor || "") + "</td>" +
+      "<td>" + (r.role || "") + "</td>" +
+      "<td>" + (r.platform || "") + "</td>" +
+      "<td>" + (r.ip || "") + "</td>" +
+      "<td>" + (r.managed_by || "") + "</td>" +
+      "<td style=\"font-size:11px;color:#666\">" + (r.secrets_group || "") + "</td>" +
+      "<td><span class=\"badge " + bc + "\">" + icon + "</span></td>" +
+      "<td class=\"notes-col\" title=\"" + notes.replace(/"/g, "'") + "\">" + notes + "</td>" +
+      "</tr>";
+  });
+  html += "</tbody></table></div>";
+  document.getElementById("validationTable").innerHTML = html;
+
+  var btn = document.getElementById("generateBtn");
+  if (btn) btn.disabled = (summary.errors === summary.total);
+}
+
+function generateReadyCsv() {
+  var validRows = state.validationRows.filter(function(r) { return r.status !== "error"; });
+  fetch("/api/generate-ready-csv", {
+    method:  "POST",
+    headers: {"Content-Type": "application/json"},
+    body:    JSON.stringify({ rows: validRows, site_config: state.siteConfig })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.error) { alert(data.error); return; }
+    setStep(4);
+    var siteSlug = state.siteConfig.site_name.toLowerCase().replace(/ /g, "-");
+    document.getElementById("generateResult").innerHTML =
+      "<div class=\"alert alert-ok\">" +
+      "<strong>nautobot_ready CSV generated</strong><br>" +
+      "File: <code>" + data.filename + "</code><br>" +
+      "Devices: " + data.count + "<br>" +
+      "Manifest: " + data.manifest +
+      "</div>" +
+      "<div class=\"actions\" style=\"margin-top:12px\">" +
+      "<a href=\"/api/download-ready-csv/" + siteSlug + "\" class=\"btn btn-primary\">Download " + data.filename + "</a>" +
+      "</div>" +
+      "<div class=\"alert alert-info\" style=\"margin-top:12px\">" +
+      "Next step: <code>python3 nautobot_onboard_v2.py --csv " + data.filepath + "</code>" +
+      "</div>";
+  });
+}
+
+init();
+</script>
+</body>
+</html>

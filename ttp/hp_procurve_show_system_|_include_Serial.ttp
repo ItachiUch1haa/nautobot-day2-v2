@@ -1,0 +1,3 @@
+<group name="serials">
+  Serial Number      : {{ serial }}
+</group>
