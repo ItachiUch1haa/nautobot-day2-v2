@@ -19,6 +19,10 @@ class NautobotDay2Config(NautobotAppConfig):
         # Base directory for tenant credential .env files, overridable per
         # deployment (e.g. a shared/mounted path when running multiple workers).
         "tenants_dir": "/etc/nautobot/tenants",
+        # Max concurrent device-sync tasks per site, regardless of how many
+        # Celery workers are running — protects small switch stacks/WAN
+        # links from being hit by the whole worker pool at once.
+        "max_concurrent_per_site": 5,
     }
     caching_config = {}
 

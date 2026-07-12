@@ -9,9 +9,12 @@ import os
 import sys
 import importlib.util
 
+from celery import chord, group
 from nautobot.extras.jobs import Job, StringVar, ChoiceVar, BooleanVar, ObjectVar
-from nautobot.dcim.models import Device, Location
+from nautobot.dcim.models import Location
 from nautobot.tenancy.models import Tenant
+
+from ..tasks import sync_device_task, sync_summary_callback
 
 # Path to sync engine — resolved relative to this installed package, so it
 # works the same whether run from a git checkout or a pip-installed App.
@@ -134,59 +137,32 @@ class SyncNetworkData(Job):
 
         self.log_info(message=f"Found {len(devices)} devices to sync")
 
-        # Sync each device
-        ok = fail = 0
-        total_interfaces = total_cables = 0
+        # Fan out — one Celery task per device instead of looping here.
+        # This Job's own run() dispatches and returns; a summary log entry
+        # is appended to this same Job's log once every device task
+        # finishes (nautobot_day2.tasks.sync_summary_callback). Per-site
+        # concurrency is capped regardless of worker pool size (see
+        # nautobot_day2.concurrency) so a bigger pool doesn't mean more
+        # simultaneous SSH sessions against one small site than it can take.
+        site_key = f"{tenant_slug}:{site_name}"
+        header = group(
+            sync_device_task.s(device, tenant_slug, site_key, dry_run)
+            for device in devices
+        )
+        chord(header)(sync_summary_callback.s(
+            job_result_id=str(self.job_result.pk),
+            site_name=site_name,
+            tenant_slug=tenant_slug,
+        ))
 
-        for device in devices:
-            dev_name = device.get('name', '?')
-            try:
-                # Get Nautobot Device object for logging
-                try:
-                    dev_obj = Device.objects.get(name=dev_name)
-                except Device.DoesNotExist:
-                    dev_obj = None
-
-                result = sync.sync_device(device, dry_run)
-
-                if result.status == 'success':
-                    ok += 1
-                    i = result.writes.get('interfaces', 0)
-                    c = result.writes.get('cables', 0)
-                    total_interfaces += i
-                    total_cables     += c
-                    self.log_success(
-                        obj=dev_obj,
-                        message=f"✅ {dev_name} — interfaces:{i} cables:{c} facts:{result.writes.get('facts',0)}"
-                    )
-                elif result.status == 'failed':
-                    fail += 1
-                    self.log_warning(
-                        obj=dev_obj,
-                        message=f"❌ {dev_name} — {result.error_msg[:120]}"
-                    )
-                else:
-                    self.log_info(
-                        obj=dev_obj,
-                        message=f"⏭  {dev_name} — skipped ({result.status})"
-                    )
-
-            except Exception as e:
-                fail += 1
-                self.log_warning(message=f"❌ {dev_name} — exception: {str(e)[:120]}")
-
-        # Summary
         self.log_info(
             message=(
-                f"Sync complete — ✅ {ok} ❌ {fail} | "
-                f"interfaces:{total_interfaces} cables:{total_cables}"
+                f"Dispatched {len(devices)} device sync task(s) to the "
+                f"'nautobot_day2_sync' queue — this Job reports 'dispatched', "
+                f"not 'complete'. A summary log entry will be added to this "
+                f"Job's log once every device task finishes."
             )
         )
-
-        if fail > 0:
-            self.log_warning(
-                message=f"{fail} device(s) failed — check credentials and reachability"
-            )
 
 
 class SyncAllSites(Job):
@@ -246,22 +222,39 @@ class SyncAllSites(Job):
 
         self.log_info(message=f"Found {sites.count()} sites with devices")
 
+        # Gather every device across every site first, tagged with its own
+        # site_key, then fan out ALL of them as a single dispatch. Per-site
+        # concurrency caps (nautobot_day2.concurrency) apply per device
+        # regardless of which site it came from, so one big multi-site
+        # tenant sync still can't overrun any single site's device limit.
+        all_devices = []
         for site in sites:
-            self.log_info(obj=site, message=f"Syncing site: {site.name}")
             try:
                 devices = sync.get_devices_for_site(site.name, tenant_slug, category)
-                self.log_info(message=f"  {site.name}: {len(devices)} devices")
-
-                for device in devices:
-                    dev_name = device.get('name','?')
-                    try:
-                        result = sync.sync_device(device, dry_run)
-                        icon   = "✅" if result.status == "success" else "❌"
-                        self.log_info(message=f"  {icon} {dev_name}")
-                    except Exception as e:
-                        self.log_warning(message=f"  ❌ {dev_name}: {str(e)[:80]}")
-
+                self.log_info(obj=site, message=f"{site.name}: {len(devices)} devices")
+                site_key = f"{tenant_slug}:{site.name}"
+                all_devices.extend((device, site_key) for device in devices)
             except Exception as e:
-                self.log_warning(message=f"Site {site.name} failed: {str(e)[:80]}")
+                self.log_warning(message=f"Site {site.name} failed to enumerate devices: {str(e)[:80]}")
 
-        self.log_info(message=f"All sites sync complete for {tenant_obj.name}")
+        if not all_devices:
+            self.log_warning(message="No devices found across any site for this tenant")
+            return
+
+        header = group(
+            sync_device_task.s(device, tenant_slug, site_key, dry_run)
+            for device, site_key in all_devices
+        )
+        chord(header)(sync_summary_callback.s(
+            job_result_id=str(self.job_result.pk),
+            site_name=f"ALL SITES ({sites.count()})",
+            tenant_slug=tenant_slug,
+        ))
+
+        self.log_info(
+            message=(
+                f"Dispatched {len(all_devices)} device sync task(s) across "
+                f"{sites.count()} site(s) to the 'nautobot_day2_sync' queue — "
+                f"a summary log entry will be added once every device task finishes."
+            )
+        )
