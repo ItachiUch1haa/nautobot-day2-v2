@@ -31,7 +31,7 @@ from client import NautobotClient
 client = NautobotClient(env_file=os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env'))
 URL = client.url
 
-LAB_PROFILES_DIR  = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'profiles')
+LAB_PROFILES_DIR  = os.environ.get("NAUTOBOT_DAY2_TENANTS_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), 'profiles'))
 LAB_MANIFESTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'manifests')
 
 
@@ -255,7 +255,7 @@ def get_or_create_secret(var_name, dry_run, results):
 
 def association_exists(sg_id, access_type, secret_type):
     r = client.get('extras/secrets-groups-associations', params={
-        'secrets_group_id': sg_id, 'access_type': access_type,
+        'secrets_group': sg_id, 'access_type': access_type,
         'secret_type': secret_type, 'limit': 1,
     })
     return r.ok and r.json().get('count', 0) > 0
