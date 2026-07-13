@@ -56,15 +56,68 @@ def get_id_by_name(endpoint, name):
 
 # ── Profile ───────────────────────────────────────────────────────────────────
 
-def load_profile(path):
-    with open(path) as f:
-        profile = json.load(f)
+def validate_profile(profile):
+    """
+    Ensure a profile dict has everything create_tenant needs, regardless of
+    whether it came from a JSON file (CLI) or was built in-memory by a caller
+    like the onboarding web app. Adds 'slug' if missing. Mutates and returns
+    the same dict.
+    """
     for field in ['name', 'group', 'vertical', 'selections']:
         if field not in profile:
             raise ValueError(f"Profile missing required field: '{field}'")
     if 'slug' not in profile:
         profile['slug'] = slugify(profile['name'])
     return profile
+
+
+def load_profile(path):
+    with open(path) as f:
+        profile = json.load(f)
+    return validate_profile(profile)
+
+
+def run_create_tenant(profile, dry_run=False):
+    """
+    Programmatic entry point — the same work main() does, minus argparse,
+    sys.exit, and CLI-only printing. Callers (e.g. the onboarding web app)
+    pass a profile dict directly; this validates it, runs every creation
+    step in order, and returns a structured summary instead of relying on
+    stdout.
+
+    Returns:
+        {
+          "profile": <validated profile dict, with 'slug' filled in>,
+          "derived": <output of derive_objects()>,
+          "results": [[name, kind, status], ...],
+          "created": int, "skipped": int, "failed": int,
+        }
+    """
+    profile = validate_profile(dict(profile))
+    derived = derive_objects(profile)
+    results = []
+
+    create_tenant_record(profile, dry_run, results)
+    create_namespace(profile, dry_run, results)
+    create_secrets_groups(profile, derived, dry_run, results)
+    create_external_integrations(profile, derived, dry_run, results)
+    write_env_file(profile, derived, dry_run, results)
+
+    if not dry_run:
+        save_manifest(profile, derived)
+
+    created = sum(1 for r in results if r[2] in ('created', 'would create'))
+    skipped = sum(1 for r in results if r[2] == 'skipped')
+    failed  = sum(1 for r in results if r[2].startswith('FAILED'))
+
+    return {
+        "profile": profile,
+        "derived": derived,
+        "results": results,
+        "created": created,
+        "skipped": skipped,
+        "failed": failed,
+    }
 
 
 # ── Derive exact objects needed from profile selections ───────────────────────
@@ -474,28 +527,16 @@ def main():
         print(f"      → {ei}")
     print(f"    Env vars in template : {len(derived['env_vars'])}")
 
-    results = []
-    create_tenant_record(profile, args.dry_run, results)
-    create_namespace(profile, args.dry_run, results)
-    create_secrets_groups(profile, derived, args.dry_run, results)
-    create_external_integrations(profile, derived, args.dry_run, results)
-    write_env_file(profile, derived, args.dry_run, results)
-
-    if not args.dry_run:
-        save_manifest(profile, derived)
-
-    created = sum(1 for r in results if r[2] in ('created', 'would create'))
-    skipped = sum(1 for r in results if r[2] == 'skipped')
-    failed  = sum(1 for r in results if r[2].startswith('FAILED'))
+    summary = run_create_tenant(profile, dry_run=args.dry_run)
 
     print(f"\n{'='*60}")
-    print(f"  Summary: {created} {'would create' if args.dry_run else 'created'}"
-          f" | {skipped} skipped | {failed} failed")
+    print(f"  Summary: {summary['created']} {'would create' if args.dry_run else 'created'}"
+          f" | {summary['skipped']} skipped | {summary['failed']} failed")
     print(f"{'='*60}\n")
 
     if args.dry_run:
         print("Run without --dry-run to apply changes.\n")
-    if failed:
+    if summary['failed']:
         sys.exit(1)
 
 
