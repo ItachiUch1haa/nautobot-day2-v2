@@ -1,5 +1,10 @@
 # Single-server test deployment
 
+**Starting from a completely clean Ubuntu server?** Use [INSTALL.md](INSTALL.md)
+instead — it covers everything from a bare box (Docker install, firewall,
+swap) through a verified running instance. This file assumes Docker's
+already set up and covers the compose stack itself.
+
 Brings up Postgres + Redis + Nautobot + one Celery worker on one box, with
 `nautobot_day2` installed, for testing against real devices before splitting
 onto multiple machines. Matches the single-server starting point discussed —
