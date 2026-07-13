@@ -17,6 +17,7 @@ import os
 import sys
 
 from celery.utils.log import get_task_logger
+from dotenv import load_dotenv
 from nautobot.core.celery import nautobot_task
 
 from .concurrency import SiteAtCapacity, site_slot
@@ -45,6 +46,30 @@ def _load_sync_engine():
     return mod
 
 
+def _load_tenant_env(tenant_slug):
+    """
+    Read this tenant's credential .env file fresh from disk and load it
+    into the current process's environment, overriding any stale values
+    already there. Called right before every device sync so an admin
+    editing credentials via the onboarding app takes effect on the very
+    next sync run -- no worker restart needed.
+    """
+    from django.conf import settings
+
+    app_settings = settings.PLUGINS_CONFIG.get("nautobot_day2", {})
+    tenants_dir = app_settings.get("tenants_dir")
+    if not tenants_dir:
+        logger.warning("PLUGINS_CONFIG['nautobot_day2']['tenants_dir'] not set — skipping env reload")
+        return
+
+    env_path = os.path.join(tenants_dir, f"{tenant_slug}.env")
+    if not os.path.isfile(env_path):
+        logger.warning("Tenant env file not found for '%s' at %s", tenant_slug, env_path)
+        return
+
+    load_dotenv(env_path, override=True)
+
+
 @nautobot_task(
     bind=True,
     queue="nautobot_day2_sync",
@@ -64,6 +89,7 @@ def sync_device_task(self, device, tenant_slug, site_key, dry_run=False, max_con
 
     try:
         with site_slot(site_key, max_concurrent):
+            _load_tenant_env(tenant_slug)
             sync = _load_sync_engine()
             result = sync.sync_device(device, dry_run)
     except SiteAtCapacity as exc:
