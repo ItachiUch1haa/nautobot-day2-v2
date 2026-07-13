@@ -3,8 +3,24 @@
   "group": "MS",
   "vertical": "Enterprise",
   "selections": {
-    "aruba":    { "switch": ["ssh"] },
-    "juniper":  { "switch": ["ssh"], "ap": ["mist"] },
-    "fortinet": { "firewall": ["ssh"] }
-  }
+    "aruba": {
+      "switch": [
+        "ssh"
+      ]
+    },
+    "juniper": {
+      "switch": [
+        "ssh"
+      ],
+      "ap": [
+        "mist"
+      ]
+    },
+    "fortinet": {
+      "firewall": [
+        "ssh"
+      ]
+    }
+  },
+  "slug": "airowire-networks"
 }

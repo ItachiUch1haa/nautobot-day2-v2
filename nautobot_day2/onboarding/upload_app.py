@@ -184,6 +184,98 @@ def api_site_types():
     return jsonify(sorted(result))
 
 
+# ── Tenant & credentials ──────────────────────────────────────────────────────
+
+@app.route('/api/tenant-profile/<slug>')
+def api_tenant_profile(slug):
+    """Return a previously saved tenant profile JSON, if one exists."""
+    from create_tenant import validate_profile
+
+    path = os.path.join(PROFILES_DIR, f"{slug}.json")
+    if not os.path.exists(path):
+        return jsonify({'error': 'No profile found for this tenant'}), 404
+    with open(path) as f:
+        profile = json.load(f)
+    return jsonify(validate_profile(profile))
+
+
+@app.route('/api/create-tenant', methods=['POST'])
+def api_create_tenant():
+    """
+    Create (or update) a tenant in Nautobot from form data, and persist the
+    profile JSON so later steps (credentials, deploy) can look it up by slug.
+    Body: { name, group, vertical, selections, dry_run }
+    """
+    from create_tenant import run_create_tenant, validate_profile
+
+    data = request.json or {}
+    for field in ('name', 'group', 'vertical', 'selections'):
+        if not data.get(field):
+            return jsonify({'error': f"'{field}' is required"}), 400
+
+    dry_run = bool(data.get('dry_run', False))
+    profile = {
+        'name': data['name'],
+        'group': data['group'],
+        'vertical': data['vertical'],
+        'selections': data['selections'],
+    }
+
+    try:
+        result = run_create_tenant(profile, dry_run=dry_run)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+    if not dry_run:
+        os.makedirs(PROFILES_DIR, exist_ok=True)
+        profile_path = os.path.join(PROFILES_DIR, f"{result['profile']['slug']}.json")
+        with open(profile_path, 'w') as f:
+            json.dump(result['profile'], f, indent=2)
+
+    return jsonify({
+        'slug': result['profile']['slug'],
+        'created': result['created'],
+        'skipped': result['skipped'],
+        'failed': result['failed'],
+        'results': result['results'],
+    })
+
+
+@app.route('/api/credential-requirements/<slug>')
+def api_credential_requirements(slug):
+    """
+    Given a tenant's saved profile, return exactly which credential fields
+    the onboarding form needs to show — derived live from vendor_matrix,
+    never hardcoded.
+    """
+    from create_tenant import derive_objects, _infer_secret_type, validate_profile
+
+    path = os.path.join(PROFILES_DIR, f"{slug}.json")
+    if not os.path.exists(path):
+        return jsonify({'error': 'No profile found for this tenant'}), 404
+    with open(path) as f:
+        profile = json.load(f)
+    profile = validate_profile(profile)
+
+    derived = derive_objects(profile)
+    suffix = profile['slug'].upper().replace('-', '_')
+
+    fields = []
+    for prefix, group_name in derived['secrets_groups'].items():
+        for var_base in derived['prefix_env_vars'].get(prefix, []):
+            secret_type = _infer_secret_type(var_base)
+            if not secret_type:
+                continue
+            fields.append({
+                'var_name': f"{var_base}_{suffix}",
+                'secret_type': secret_type,
+                'secrets_group': group_name,
+                'is_sensitive': secret_type in ('password', 'token', 'key'),
+            })
+
+    return jsonify({'slug': slug, 'fields': fields})
+
+
 @app.route('/api/validate-row', methods=['POST'])
 def api_validate_row():
     """Validate a single device row in real time."""

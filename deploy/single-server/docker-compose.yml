@@ -24,6 +24,17 @@ services:
       timeout: 5s
       retries: 10
 
+  volume-init:
+    build:
+      context: ../..
+      dockerfile: deploy/single-server/Dockerfile
+    user: root
+    volumes:
+      - nautobot_media:/opt/nautobot/media
+      - tenants_data:/opt/nautobot/nautobot_day2_tenants
+    entrypoint: ["chown", "-R", "nautobot:nautobot", "/opt/nautobot/media", "/opt/nautobot/nautobot_day2_tenants"]
+    restart: "no"
+
   nautobot:
     build:
       context: ../..
@@ -33,6 +44,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      volume-init:
+        condition: service_completed_successfully
     environment: &nautobot_env
       NAUTOBOT_SECRET_KEY: ${NAUTOBOT_SECRET_KEY:-please-change-me-this-is-a-test-key}
       NAUTOBOT_ALLOWED_HOSTS: "*"
@@ -55,6 +68,12 @@ services:
     ports:
       - "8080:8080"
     command: nautobot-server runserver 0.0.0.0:8080 --insecure
+    healthcheck:
+      test: ["CMD-SHELL", "nautobot-server health_check"]
+      interval: 15s
+      timeout: 30s
+      retries: 3
+      start_period: 300s
 
   nautobot-worker:
     build:
@@ -62,6 +81,7 @@ services:
       dockerfile: deploy/single-server/Dockerfile
     depends_on:
       - nautobot
+      - volume-init
     environment: *nautobot_env
     volumes:
       - ./nautobot_config.py:/opt/nautobot/nautobot_config.py:ro
@@ -69,6 +89,38 @@ services:
     # Single-server test: one worker covers both queues. Split this into two
     # services (see README) once you move to separate worker machines.
     command: nautobot-server celery worker -l info -Q default,nautobot_day2_sync
+    healthcheck:
+      test: ["CMD-SHELL", "nautobot-server health_check"]
+      interval: 15s
+      timeout: 30s
+      retries: 3
+      start_period: 300s
+
+  upload-app:
+    build:
+      context: ../..
+      dockerfile: deploy/single-server/Dockerfile
+    depends_on:
+      nautobot:
+        condition: service_healthy
+      volume-init:
+        condition: service_completed_successfully
+    environment:
+      NAUTOBOT_URL: http://nautobot:8080
+      NAUTOBOT_TOKEN: ${NAUTOBOT_SUPERUSER_API_TOKEN:-0123456789abcdef0123456789abcdef01234567}
+      NAUTOBOT_DAY2_TENANTS_DIR: /opt/nautobot/nautobot_day2_tenants
+    volumes:
+      - tenants_data:/opt/nautobot/nautobot_day2_tenants
+    ports:
+      - "8081:8081"
+    entrypoint: []
+    command: ["python3", "/source/nautobot-day2/nautobot_day2/onboarding/upload_app.py", "--port", "8081"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8081/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
 volumes:
   postgres_data:
