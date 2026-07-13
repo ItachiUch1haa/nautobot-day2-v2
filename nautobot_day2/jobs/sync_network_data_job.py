@@ -258,3 +258,6 @@ class SyncAllSites(Job):
                 f"a summary log entry will be added once every device task finishes."
             )
         )
+
+from nautobot.core.celery import register_jobs
+register_jobs(SyncNetworkData, SyncAllSites)
