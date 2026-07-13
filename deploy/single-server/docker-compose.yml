@@ -47,13 +47,14 @@ services:
       NAUTOBOT_SUPERUSER_EMAIL: ${NAUTOBOT_SUPERUSER_EMAIL:-admin@example.com}
       NAUTOBOT_SUPERUSER_PASSWORD: ${NAUTOBOT_SUPERUSER_PASSWORD:-admin}
       NAUTOBOT_SUPERUSER_API_TOKEN: ${NAUTOBOT_SUPERUSER_API_TOKEN:-0123456789abcdef0123456789abcdef01234567}
+      NAUTOBOT_DAY2_TENANTS_DIR: /opt/nautobot/nautobot_day2_tenants
     volumes:
       - ./nautobot_config.py:/opt/nautobot/nautobot_config.py:ro
       - nautobot_media:/opt/nautobot/media
       - tenants_data:/opt/nautobot/nautobot_day2_tenants
     ports:
       - "8080:8080"
-    command: nautobot-server runserver 0.0.0.0:8080
+    command: nautobot-server runserver 0.0.0.0:8080 --insecure
 
   nautobot-worker:
     build:
