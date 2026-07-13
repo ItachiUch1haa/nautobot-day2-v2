@@ -1,0 +1,75 @@
+name: nautobot-day2-test
+
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: nautobot
+      POSTGRES_USER: nautobot
+      POSTGRES_PASSWORD: ${NAUTOBOT_DB_PASSWORD:-nautobot_test_pw}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nautobot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7
+    command: ["redis-server", "--requirepass", "${NAUTOBOT_REDIS_PASSWORD:-redis_test_pw}"]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a ${NAUTOBOT_REDIS_PASSWORD:-redis_test_pw} ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  nautobot:
+    build:
+      context: ../..
+      dockerfile: deploy/single-server/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment: &nautobot_env
+      NAUTOBOT_SECRET_KEY: ${NAUTOBOT_SECRET_KEY:-please-change-me-this-is-a-test-key}
+      NAUTOBOT_ALLOWED_HOSTS: "*"
+      NAUTOBOT_DB_HOST: postgres
+      NAUTOBOT_DB_NAME: nautobot
+      NAUTOBOT_DB_USER: nautobot
+      NAUTOBOT_DB_PASSWORD: ${NAUTOBOT_DB_PASSWORD:-nautobot_test_pw}
+      NAUTOBOT_REDIS_HOST: redis
+      NAUTOBOT_REDIS_PASSWORD: ${NAUTOBOT_REDIS_PASSWORD:-redis_test_pw}
+      NAUTOBOT_CREATE_SUPERUSER: "true"
+      NAUTOBOT_SUPERUSER_NAME: ${NAUTOBOT_SUPERUSER_NAME:-admin}
+      NAUTOBOT_SUPERUSER_EMAIL: ${NAUTOBOT_SUPERUSER_EMAIL:-admin@example.com}
+      NAUTOBOT_SUPERUSER_PASSWORD: ${NAUTOBOT_SUPERUSER_PASSWORD:-admin}
+      NAUTOBOT_SUPERUSER_API_TOKEN: ${NAUTOBOT_SUPERUSER_API_TOKEN:-0123456789abcdef0123456789abcdef01234567}
+    volumes:
+      - ./nautobot_config.py:/opt/nautobot/nautobot_config.py:ro
+      - nautobot_media:/opt/nautobot/media
+      - tenants_data:/opt/nautobot/nautobot_day2_tenants
+    ports:
+      - "8080:8080"
+    command: nautobot-server runserver 0.0.0.0:8080
+
+  nautobot-worker:
+    build:
+      context: ../..
+      dockerfile: deploy/single-server/Dockerfile
+    depends_on:
+      - nautobot
+    environment: *nautobot_env
+    volumes:
+      - ./nautobot_config.py:/opt/nautobot/nautobot_config.py:ro
+      - tenants_data:/opt/nautobot/nautobot_day2_tenants
+    # Single-server test: one worker covers both queues. Split this into two
+    # services (see README) once you move to separate worker machines.
+    command: nautobot-server celery worker -l info -Q default,nautobot_day2_sync
+
+volumes:
+  postgres_data:
+  nautobot_media:
+  tenants_data:
