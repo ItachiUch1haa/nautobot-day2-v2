@@ -26,6 +26,14 @@ VENDOR_MATRIX = {
                     }
                 },
                 "access_methods": {
+                    "aruba-central": {
+                        "enabled": True,
+                        "label": "Aruba Central API",
+                        "secrets_group_prefix": "aruba-central-api",
+                        "env_vars": ["ARUBA_CLIENT_ID", "ARUBA_CLIENT_SECRET", "ARUBA_REFRESH_TOKEN", "ARUBA_CENTRAL_BASE_URL", "ARUBA_CENTRAL_TYPE"],
+                        "external_integration": "Aruba Central",
+                        "sync_handler": "aruba_central_switch_api"
+                    },
                     "ssh": {
                         "enabled": True,
                         "label": "SSH",
@@ -112,6 +120,14 @@ VENDOR_MATRIX = {
                     }
                 },
                 "access_methods": {
+                    "mist": {
+                        "enabled": True,
+                        "label": "Mist Cloud API",
+                        "secrets_group_prefix": "juniper-mist-api",
+                        "env_vars": ["MIST_API_TOKEN", "MIST_ORG_ID"],
+                        "external_integration": "Mist Cloud",
+                        "sync_handler": "juniper_mist_switch_api"
+                    },
                     "ssh": {
                         "enabled": True,
                         "label": "SSH",
@@ -140,13 +156,6 @@ VENDOR_MATRIX = {
                         "env_vars": ["MIST_API_TOKEN", "MIST_ORG_ID"],
                         "external_integration": "Mist Cloud",
                         "sync_handler": "juniper_mist_api"
-                    },
-                    "ssh": {
-                        "enabled": True,
-                        "label": "SSH only",
-                        "secrets_group_prefix": "juniper-ssh",
-                        "env_vars": ["JUNIPER_SSH_USER", "JUNIPER_SSH_PASS"],
-                        "sync_handler": "juniper_switch_ssh"
                     }
                 },
                 "default_access": "mist"
@@ -162,6 +171,14 @@ VENDOR_MATRIX = {
                     }
                 },
                 "access_methods": {
+                    "mist": {
+                        "enabled": True,
+                        "label": "Mist Cloud API",
+                        "secrets_group_prefix": "juniper-mist-api",
+                        "env_vars": ["MIST_API_TOKEN", "MIST_ORG_ID"],
+                        "external_integration": "Mist Cloud",
+                        "sync_handler": "juniper_mist_firewall_api"
+                    },
                     "ssh": {
                         "enabled": True,
                         "label": "SSH",
