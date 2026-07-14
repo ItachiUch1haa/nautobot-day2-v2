@@ -22,7 +22,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
 label { display: block; font-size: 12px; font-weight: 500;
         color: #5F5E5A; margin-bottom: 4px; }
-select, input[type=text] {
+select, input[type=text], input[type=password] {
   width: 100%; padding: 8px 10px; border: 1px solid #d1d5db;
   border-radius: 6px; font-size: 13px; color: #1a1a2e;
   background: white; transition: border-color .15s; }
@@ -53,6 +53,7 @@ select:focus, input:focus { outline: none; border-color: #1B3A6B; }
 .badge-fixed { background: #FAEEDA; color: #BA7517; }
 .badge-warn  { background: #FFF3E0; color: #E65100; }
 .badge-error { background: #FCEBEB; color: #A32D2D; }
+.badge-muted { background: #eef0f2; color: #6b7280; }
 .summary-bar { display: flex; gap: 16px; padding: 12px 16px;
                background: #f8f9fa; border-radius: 8px; margin-bottom: 16px;
                font-size: 13px; flex-wrap: wrap; }
@@ -61,17 +62,31 @@ select:focus, input:focus { outline: none; border-color: #1B3A6B; }
 .alert-warn  { background: #FAEEDA; color: #633806; border: 1px solid #FAC775; }
 .alert-error { background: #FCEBEB; color: #A32D2D; border: 1px solid #F7C1C1; }
 .alert-ok    { background: #E1F5EE; color: #085041; border: 1px solid #9FE1CB; }
-.step-indicator { display: flex; gap: 0; margin-bottom: 24px; }
-.step { flex: 1; padding: 10px; text-align: center; font-size: 12px; font-weight: 500;
+.step-indicator { display: flex; gap: 0; margin-bottom: 24px; flex-wrap: wrap; }
+.step { flex: 1; min-width: 110px; padding: 10px 6px; text-align: center; font-size: 11px; font-weight: 500;
         background: #f0f2f5; color: #888; border-right: 1px solid #e2e6ea; }
 .step:last-child { border-right: none; }
 .step.active { background: #E6F1FB; color: #1B3A6B; }
 .step.done   { background: #E1F5EE; color: #0F6E56; }
 .field-group { margin-bottom: 12px; }
-.actions { display: flex; gap: 10px; align-items: center; margin-top: 16px; }
+.actions { display: flex; gap: 10px; align-items: center; margin-top: 16px; flex-wrap: wrap; }
 #csvPreview { max-height: 400px; overflow-y: auto; }
 .notes-col { font-size: 11px; color: #888; max-width: 200px;
              white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.new-tenant-box { border: 1px dashed #1B3A6B; border-radius: 8px; padding: 14px;
+                  margin-top: 10px; background: #FAFCFF; }
+.vendor-check-group { display: flex; gap: 16px; flex-wrap: wrap; margin: 8px 0 12px; }
+.vendor-check-group label { display: flex; align-items: center; gap: 6px;
+                             font-weight: 400; color: #1a1a2e; margin: 0; }
+.vendor-check-group input { width: auto; }
+.link-btn { background: none; border: none; color: #1B3A6B; font-size: 12px;
+            font-weight: 500; cursor: pointer; text-decoration: underline; padding: 0; }
+.cred-field-row { display: flex; align-items: center; gap: 10px; padding: 8px 0;
+                  border-bottom: 1px solid #f0f2f5; }
+.cred-field-row label { flex: 0 0 260px; margin: 0; font-size: 12px; color: #1a1a2e; }
+.cred-field-row input { flex: 1; }
+.cred-group-label { font-size: 12px; font-weight: 600; color: #1B3A6B;
+                     margin: 16px 0 4px; text-transform: uppercase; letter-spacing: .03em; }
 </style>
 </head>
 <body>
@@ -79,35 +94,66 @@ select:focus, input:focus { outline: none; border-color: #1B3A6B; }
 <div class="header">
   <div>
     <h1>Nautobot &mdash; Site Onboarding Portal</h1>
-    <span>Phase 4 &mdash; Device data entry and CSV validation</span>
+    <span>Tenant, devices, credentials, validation, and deploy in one flow</span>
   </div>
 </div>
 
 <div class="container">
 
   <div class="step-indicator">
-    <div class="step active" id="step1-ind">1. Site Config</div>
+    <div class="step active" id="step1-ind">1. Tenant &amp; Site</div>
     <div class="step" id="step2-ind">2. Device Data</div>
     <div class="step" id="step3-ind">3. Validate</div>
-    <div class="step" id="step4-ind">4. Generate CSV</div>
+    <div class="step" id="step4-ind">4. Credentials</div>
+    <div class="step" id="step5-ind">5. Test Creds</div>
+    <div class="step" id="step6-ind">6. Deploy</div>
   </div>
 
   <!-- STEP 1 -->
   <div id="step1" class="card">
-    <h2>Step 1 &mdash; Site Configuration</h2>
+    <h2>Step 1 &mdash; Tenant &amp; Site Configuration</h2>
     <div class="grid-2">
       <div class="field-group">
         <label>Tenant *</label>
         <select id="tenantSelect" onchange="onTenantChange()">
           <option value="">Loading tenants...</option>
         </select>
+        <button type="button" class="link-btn" style="margin-top:6px" onclick="toggleNewTenant()">+ New tenant</button>
       </div>
       <div class="field-group">
         <label>Site Name *</label>
         <input type="text" id="siteName" placeholder="e.g. Acme-BLR-03">
       </div>
     </div>
-    <div class="grid-3">
+
+    <div id="newTenantBox" class="new-tenant-box" style="display:none">
+      <div class="grid-2">
+        <div class="field-group">
+          <label>Customer Name *</label>
+          <input type="text" id="newTenantName" placeholder="e.g. Acme-Corp">
+        </div>
+        <div class="field-group">
+          <label>Group *</label>
+          <select id="newTenantGroup">
+            <option value="MS">MS</option>
+            <option value="PBS">PBS</option>
+          </select>
+        </div>
+      </div>
+      <div class="field-group">
+        <label>Industry Vertical *</label>
+        <input type="text" id="newTenantVertical" placeholder="e.g. Retail">
+      </div>
+      <label>Which vendors does this customer have?</label>
+      <div class="vendor-check-group" id="newTenantVendors"></div>
+      <div class="actions" style="margin-top:4px">
+        <button class="btn btn-primary btn-sm" onclick="createNewTenant()">Create Tenant</button>
+        <button class="btn btn-outline btn-sm" onclick="toggleNewTenant()">Cancel</button>
+      </div>
+      <div id="newTenantResult"></div>
+    </div>
+
+    <div class="grid-3" style="margin-top:16px">
       <div class="field-group">
         <label>Region *</label>
         <input type="text" id="regionInput" placeholder="e.g. Asia-Pacific">
@@ -187,16 +233,56 @@ select:focus, input:focus { outline: none; border-color: #1B3A6B; }
     <div id="validationTable"></div>
     <div class="actions">
       <button class="btn btn-outline" onclick="goStep2()">Back</button>
-      <button class="btn btn-success" id="generateBtn" onclick="generateReadyCsv()">Generate nautobot_ready CSV</button>
+      <button class="btn btn-success" id="toCredsBtn" onclick="goStep4()">Next &mdash; Credentials</button>
     </div>
   </div>
 
   <!-- STEP 4 -->
   <div id="step4" class="card" style="display:none">
-    <h2>Step 4 &mdash; Ready for Onboarding</h2>
-    <div id="generateResult"></div>
+    <h2>Step 4 &mdash; Tenant Credentials</h2>
+    <div class="alert alert-info">
+      Only the fields this tenant's actual device list needs are shown below.
+      Values are written straight to the tenant's credential file and are never shown again once saved.
+    </div>
+    <div id="credentialFields"></div>
+    <div class="actions">
+      <button class="btn btn-outline" onclick="goStep3()">Back</button>
+      <button class="btn btn-primary" onclick="saveCredentials()">Save Credentials</button>
+      <button class="btn btn-success" onclick="goStep5()">Next &mdash; Test Credentials</button>
+    </div>
+  </div>
+
+  <!-- STEP 5 -->
+  <div id="step5" class="card" style="display:none">
+    <h2>Step 5 &mdash; Validate Credentials</h2>
+    <div class="alert alert-info">
+      Tests each unique vendor/access method actually used by this device list &mdash; a real
+      SSH login attempt or a real cloud API call, using the credentials just saved.
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary btn-sm" onclick="runCredentialValidation()">Run Tests</button>
+    </div>
+    <div id="credValidationResults" style="margin-top:12px"></div>
+    <div class="actions">
+      <button class="btn btn-outline" onclick="goStep4()">Back</button>
+      <button class="btn btn-success" onclick="goStep6()">Next &mdash; Deploy</button>
+    </div>
+  </div>
+
+  <!-- STEP 6 -->
+  <div id="step6" class="card" style="display:none">
+    <h2>Step 6 &mdash; Deploy</h2>
+    <div class="alert alert-info">
+      Creates every validated device in Nautobot, then triggers a live sync for this tenant.
+    </div>
+    <div class="actions">
+      <button class="btn btn-success" onclick="deploySite()">Deploy to Nautobot</button>
+      <button class="btn btn-outline" onclick="generateReadyCsv()">Also generate CSV (manual reference)</button>
+    </div>
+    <div id="deployResult" style="margin-top:14px"></div>
+    <div id="generateResult" style="margin-top:14px"></div>
     <div class="actions" style="margin-top:16px">
-      <button class="btn btn-outline" onclick="goStep1()">Start New Site</button>
+      <button class="btn btn-outline" onclick="startNewSite()">Start New Site</button>
     </div>
   </div>
 
@@ -208,24 +294,16 @@ var state = {
   siteConfig: null,
   devices: [],
   validationRows: [],
+  credentialFields: [],
   activeTab: "interactive",
   roles: [],
   vendors: []
 };
 
+var ALL_VENDOR_SLUGS = ["aruba", "juniper", "cisco", "fortinet"];
+
 function init() {
-  fetch("/api/tenants")
-    .then(function(r) { return r.json(); })
-    .then(function(tenants) {
-      var sel = document.getElementById("tenantSelect");
-      sel.innerHTML = "<option value=\"\">Select tenant...</option>";
-      tenants.forEach(function(t) {
-        var opt = document.createElement("option");
-        opt.value = t.slug;
-        opt.text  = t.name;
-        sel.appendChild(opt);
-      });
-    });
+  loadTenants();
 
   fetch("/api/site-types")
     .then(function(r) { return r.json(); })
@@ -242,21 +320,95 @@ function init() {
 
   fetch("/api/vendors")
     .then(function(r) { return r.json(); })
-    .then(function(v) { state.vendors = v; });
+    .then(function(v) {
+      state.vendors = v;
+      var box = document.getElementById("newTenantVendors");
+      box.innerHTML = v.map(function(vendor) {
+        return "<label><input type=\\"checkbox\\" value=\\"" + vendor.slug + "\\"> " + vendor.label + "</label>";
+      }).join("");
+    });
 
   fetch("/api/roles")
     .then(function(r) { return r.json(); })
     .then(function(r) { state.roles = r; });
 }
 
+function loadTenants() {
+  return fetch("/api/tenants")
+    .then(function(r) { return r.json(); })
+    .then(function(tenants) {
+      var sel = document.getElementById("tenantSelect");
+      sel.innerHTML = "<option value=\\"\\">Select tenant...</option>";
+      tenants.forEach(function(t) {
+        var opt = document.createElement("option");
+        opt.value = t.slug;
+        opt.text  = t.name;
+        sel.appendChild(opt);
+      });
+      return tenants;
+    });
+}
+
+function toggleNewTenant() {
+  var box = document.getElementById("newTenantBox");
+  box.style.display = (box.style.display === "none") ? "block" : "none";
+}
+
+function createNewTenant() {
+  var name     = document.getElementById("newTenantName").value.trim();
+  var group    = document.getElementById("newTenantGroup").value;
+  var vertical = document.getElementById("newTenantVertical").value.trim();
+  var checked  = Array.prototype.slice.call(
+    document.querySelectorAll("#newTenantVendors input:checked")
+  ).map(function(cb) { return cb.value; });
+
+  if (!name || !vertical || checked.length === 0) {
+    alert("Fill in customer name, vertical, and check at least one vendor");
+    return;
+  }
+
+  var resultDiv = document.getElementById("newTenantResult");
+  resultDiv.innerHTML = "<div class=\\"alert alert-info\\">Creating tenant...</div>";
+
+  fetch("/api/vendor-full-selections?vendors=" + checked.join(","))
+    .then(function(r) { return r.json(); })
+    .then(function(selections) {
+      return fetch("/api/create-tenant", {
+        method:  "POST",
+        headers: {"Content-Type": "application/json"},
+        body:    JSON.stringify({
+          name: name, group: group, vertical: vertical,
+          selections: selections, dry_run: false
+        })
+      });
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.error) {
+        resultDiv.innerHTML = "<div class=\\"alert alert-error\\">" + data.error + "</div>";
+        return;
+      }
+      resultDiv.innerHTML = "<div class=\\"alert alert-ok\\">Tenant created (" +
+        data.created + " created, " + data.skipped + " already existed).</div>";
+      loadTenants().then(function() {
+        document.getElementById("tenantSelect").value = data.slug;
+        onTenantChange();
+        toggleNewTenant();
+      });
+    })
+    .catch(function(err) {
+      resultDiv.innerHTML = "<div class=\\"alert alert-error\\">" + err + "</div>";
+    });
+}
+
 function onTenantChange() {
   var sel  = document.getElementById("tenantSelect");
-  var name = sel.options[sel.selectedIndex].text;
-  state.tenant = { slug: sel.value, name: name };
+  var name = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].text : "";
+  state.tenant = sel.value ? { slug: sel.value, name: name } : null;
 }
 
 function setStep(n) {
-  [1,2,3,4].forEach(function(i) {
+  [1,2,3,4,5,6].forEach(function(i) {
     document.getElementById("step" + i).style.display = (i === n) ? "block" : "none";
     var ind = document.getElementById("step" + i + "-ind");
     if (i === n)      ind.className = "step active";
@@ -269,7 +421,7 @@ function goStep1() { setStep(1); }
 
 function goStep2() {
   var tenant = document.getElementById("tenantSelect").value;
-  if (!tenant) { alert("Select a tenant first"); return; }
+  if (!tenant) { alert("Select or create a tenant first"); return; }
   state.siteConfig = {
     tenant_slug: tenant,
     region:    document.getElementById("regionInput").value.trim(),
@@ -311,22 +463,22 @@ function addDeviceRow() {
   tr.id  = "row-" + id;
 
   var vOpts = state.vendors.map(function(v) {
-    return "<option value=\"" + v.slug + "\">" + v.label + "</option>";
+    return "<option value=\\"" + v.slug + "\\">" + v.label + "</option>";
   }).join("");
   var rOpts = state.roles.map(function(r) {
-    return "<option value=\"" + r.name + "\">" + r.name + "</option>";
+    return "<option value=\\"" + r.name + "\\">" + r.name + "</option>";
   }).join("");
 
   tr.innerHTML =
-    "<td><input type=\"text\" style=\"width:110px;padding:4px 6px;font-size:12px\" placeholder=\"SW-BLR-01\" id=\"dn-" + id + "\"></td>" +
-    "<td><select style=\"width:130px;padding:4px 6px;font-size:12px\" id=\"role-" + id + "\" onchange=\"onRoleChange(" + id + ")\">" + rOpts + "</select></td>" +
-    "<td><select style=\"width:100px;padding:4px 6px;font-size:12px\" id=\"vendor-" + id + "\" onchange=\"onVendorChange(" + id + ")\">" + vOpts + "</select></td>" +
-    "<td><select style=\"width:120px;padding:4px 6px;font-size:12px\" id=\"platform-" + id + "\"></select></td>" +
-    "<td><input type=\"text\" style=\"width:80px;padding:4px 6px;font-size:12px\" placeholder=\"2930F\" id=\"model-" + id + "\"></td>" +
-    "<td><input type=\"text\" style=\"width:110px;padding:4px 6px;font-size:12px\" placeholder=\"10.1.1.1/24\" id=\"ip-" + id + "\" oninput=\"validateIpField(" + id + ")\"></td>" +
-    "<td><select style=\"width:110px;padding:4px 6px;font-size:12px\" id=\"mb-" + id + "\"></select></td>" +
-    "<td><input type=\"text\" style=\"width:80px;padding:4px 6px;font-size:12px\" placeholder=\"optional\" id=\"serial-" + id + "\"></td>" +
-    "<td><button class=\"btn btn-danger btn-sm\" onclick=\"removeRow(" + id + ")\">X</button></td>";
+    "<td><input type=\\"text\\" style=\\"width:110px;padding:4px 6px;font-size:12px\\" placeholder=\\"SW-BLR-01\\" id=\\"dn-" + id + "\\"></td>" +
+    "<td><select style=\\"width:130px;padding:4px 6px;font-size:12px\\" id=\\"role-" + id + "\\" onchange=\\"onRoleChange(" + id + ")\\">" + rOpts + "</select></td>" +
+    "<td><select style=\\"width:100px;padding:4px 6px;font-size:12px\\" id=\\"vendor-" + id + "\\" onchange=\\"onVendorChange(" + id + ")\\">" + vOpts + "</select></td>" +
+    "<td><select style=\\"width:120px;padding:4px 6px;font-size:12px\\" id=\\"platform-" + id + "\\"></select></td>" +
+    "<td><input type=\\"text\\" style=\\"width:80px;padding:4px 6px;font-size:12px\\" placeholder=\\"2930F\\" id=\\"model-" + id + "\\"></td>" +
+    "<td><input type=\\"text\\" style=\\"width:110px;padding:4px 6px;font-size:12px\\" placeholder=\\"10.1.1.1/24\\" id=\\"ip-" + id + "\\" oninput=\\"validateIpField(" + id + ")\\"></td>" +
+    "<td><select style=\\"width:110px;padding:4px 6px;font-size:12px\\" id=\\"mb-" + id + "\\"></select></td>" +
+    "<td><input type=\\"text\\" style=\\"width:80px;padding:4px 6px;font-size:12px\\" placeholder=\\"optional\\" id=\\"serial-" + id + "\\"></td>" +
+    "<td><button class=\\"btn btn-danger btn-sm\\" onclick=\\"removeRow(" + id + ")\\">X</button></td>";
 
   document.getElementById("deviceRows").appendChild(tr);
   loadPlatforms(id);
@@ -346,7 +498,7 @@ function loadPlatforms(id) {
       var sel = document.getElementById("platform-" + id);
       if (!sel) return;
       sel.innerHTML = platforms.map(function(p) {
-        return "<option value=\"" + p.slug + "\"" + (p.default ? " selected" : "") + ">" + p.label + "</option>";
+        return "<option value=\\"" + p.slug + "\\"" + (p.default ? " selected" : "") + ">" + p.label + "</option>";
       }).join("");
     });
 }
@@ -361,7 +513,7 @@ function loadManagedBy(id) {
       var sel = document.getElementById("mb-" + id);
       if (!sel) return;
       sel.innerHTML = methods.map(function(m) {
-        return "<option value=\"" + m.value + "\">" + m.label + "</option>";
+        return "<option value=\\"" + m.value + "\\">" + m.label + "</option>";
       }).join("");
     });
 }
@@ -457,22 +609,21 @@ function validateDevices() {
 function showValidationResults(rows, summary) {
   var summaryDiv = document.getElementById("validationSummary");
   var okMsg      = summary.errors === 0
-    ? "<div class=\"alert alert-ok\">All devices validated. Ready to generate CSV.</div>"
-    : "<div class=\"alert alert-warn\">" + summary.errors + " errors found. Fix before generating CSV.</div>";
+    ? "<div class=\\"alert alert-ok\\">All devices validated. Ready to continue.</div>"
+    : "<div class=\\"alert alert-warn\\">" + summary.errors + " errors found. Fix before continuing.</div>";
 
   summaryDiv.innerHTML =
-    "<div class=\"summary-bar\">" +
-    "<span class=\"badge badge-ok\">OK " + summary.ok + "</span>" +
-    "<span class=\"badge badge-warn\">Warnings " + summary.warn + "</span>" +
-    "<span class=\"badge badge-error\">Errors " + summary.errors + "</span>" +
-    "<span style=\"margin-left:auto\"><strong>" + summary.ready + "/" + summary.total + "</strong> ready</span>" +
+    "<div class=\\"summary-bar\\">" +
+    "<span class=\\"badge badge-ok\\">OK " + summary.ok + "</span>" +
+    "<span class=\\"badge badge-warn\\">Warnings " + summary.warn + "</span>" +
+    "<span class=\\"badge badge-error\\">Errors " + summary.errors + "</span>" +
+    "<span style=\\"margin-left:auto\\"><strong>" + summary.ready + "/" + summary.total + "</strong> ready</span>" +
     "</div>" + okMsg;
 
-  var html = "<div id=\"csvPreview\"><table class=\"device-table\"><thead><tr>" +
+  var html = "<div id=\\"csvPreview\\"><table class=\\"device-table\\"><thead><tr>" +
     "<th>#</th><th>Device</th><th>Vendor</th><th>Role</th><th>Platform</th>" +
     "<th>IP</th><th>Managed By</th><th>Secrets Group</th><th>Status</th><th>Notes</th>" +
     "</tr></thead><tbody>";
-
   rows.forEach(function(r, i) {
     var bc   = r.status === "ok" ? "badge-ok" : r.status === "warn" ? "badge-warn" : "badge-error";
     var icon = r.status === "ok" ? "OK" : r.status === "warn" ? "WARN" : "ERROR";
@@ -485,16 +636,211 @@ function showValidationResults(rows, summary) {
       "<td>" + (r.platform || "") + "</td>" +
       "<td>" + (r.ip || "") + "</td>" +
       "<td>" + (r.managed_by || "") + "</td>" +
-      "<td style=\"font-size:11px;color:#666\">" + (r.secrets_group || "") + "</td>" +
-      "<td><span class=\"badge " + bc + "\">" + icon + "</span></td>" +
-      "<td class=\"notes-col\" title=\"" + notes.replace(/"/g, "'") + "\">" + notes + "</td>" +
+      "<td style=\\"font-size:11px;color:#666\\">" + (r.secrets_group || "") + "</td>" +
+      "<td><span class=\\"badge " + bc + "\\">" + icon + "</span></td>" +
+      "<td class=\\"notes-col\\" title=\\"" + notes.replace(/"/g, "'") + "\\">" + notes + "</td>" +
       "</tr>";
   });
   html += "</tbody></table></div>";
   document.getElementById("validationTable").innerHTML = html;
-
-  var btn = document.getElementById("generateBtn");
+  var btn = document.getElementById("toCredsBtn");
   if (btn) btn.disabled = (summary.errors === summary.total);
+}
+
+// ── Step 4 — Credentials ──────────────────────────────────────────────────
+
+function goStep4() {
+  setStep(4);
+  loadCredentialRequirements();
+}
+
+function loadCredentialRequirements() {
+  var slug = state.tenant ? state.tenant.slug : "";
+  var div  = document.getElementById("credentialFields");
+  if (!slug) { div.innerHTML = "<div class=\\"alert alert-error\\">No tenant selected</div>"; return; }
+
+  div.innerHTML = "<div class=\\"alert alert-info\\">Loading required fields...</div>";
+  fetch("/api/credential-requirements/" + slug)
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.error) { div.innerHTML = "<div class=\\"alert alert-error\\">" + data.error + "</div>"; return; }
+      state.credentialFields = data.fields;
+      renderCredentialFields(data.fields);
+    });
+}
+
+function renderCredentialFields(fields) {
+  var div = document.getElementById("credentialFields");
+  if (fields.length === 0) {
+    div.innerHTML = "<div class=\\"alert alert-ok\\">This tenant needs no credentials yet.</div>";
+    return;
+  }
+  var byGroup = {};
+  fields.forEach(function(f) {
+    if (!byGroup[f.secrets_group]) byGroup[f.secrets_group] = [];
+    byGroup[f.secrets_group].push(f);
+  });
+  var html = "";
+  Object.keys(byGroup).forEach(function(group) {
+    html += "<div class=\\"cred-group-label\\">" + group + "</div>";
+    byGroup[group].forEach(function(f) {
+      var inputType = f.is_sensitive ? "password" : "text";
+      html += "<div class=\\"cred-field-row\\">" +
+        "<label>" + f.var_name + " <span class=\\"badge badge-muted\\">" + f.secret_type + "</span></label>" +
+        "<input type=\\"" + inputType + "\\" id=\\"cred-" + f.var_name + "\\" placeholder=\\"" +
+        (f.is_sensitive ? "unchanged if left blank" : "") + "\\">" +
+        "</div>";
+    });
+  });
+  div.innerHTML = html;
+}
+
+function saveCredentials() {
+  var slug = state.tenant ? state.tenant.slug : "";
+  if (!slug) { alert("No tenant selected"); return; }
+
+  var credentials = {};
+  state.credentialFields.forEach(function(f) {
+    var input = document.getElementById("cred-" + f.var_name);
+    if (input && input.value !== "") { credentials[f.var_name] = input.value; }
+  });
+
+  if (Object.keys(credentials).length === 0) {
+    alert("No values entered");
+    return;
+  }
+
+  fetch("/api/save-credentials", {
+    method:  "POST",
+    headers: {"Content-Type": "application/json"},
+    body:    JSON.stringify({ slug: slug, credentials: credentials })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.error) { alert(data.error); return; }
+    var msg = document.createElement("div");
+    msg.className = "alert alert-ok";
+    msg.innerText = "Saved " + data.updated.length + " credential value(s).";
+    document.getElementById("credentialFields").prepend(msg);
+    state.credentialFields.forEach(function(f) {
+      var input = document.getElementById("cred-" + f.var_name);
+      if (input && f.is_sensitive) input.value = "";
+    });
+  });
+}
+
+// ── Step 5 — Validate Credentials ─────────────────────────────────────────
+
+function goStep5() { setStep(5); }
+
+function uniqueTestCombos() {
+  var seen = {};
+  var combos = [];
+  state.validationRows.forEach(function(r) {
+    if (r.status === "error") return;
+    var key = r.vendor + "|" + r.role + "|" + r.managed_by;
+    if (seen[key]) return;
+    seen[key] = true;
+    combos.push({
+      vendor: r.vendor, role: r.role,
+      access_method: r.managed_by, platform: r.platform, ip: r.ip
+    });
+  });
+  return combos;
+}
+
+function runCredentialValidation() {
+  var slug = state.tenant ? state.tenant.slug : "";
+  var div  = document.getElementById("credValidationResults");
+  var tests = uniqueTestCombos();
+  if (tests.length === 0) {
+    div.innerHTML = "<div class=\\"alert alert-warn\\">No validated devices to test yet &mdash; go back and validate devices first.</div>";
+    return;
+  }
+  div.innerHTML = "<div class=\\"alert alert-info\\">Running " + tests.length + " test(s)...</div>";
+
+  fetch("/api/validate-credentials", {
+    method:  "POST",
+    headers: {"Content-Type": "application/json"},
+    body:    JSON.stringify({ slug: slug, tests: tests })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.error) { div.innerHTML = "<div class=\\"alert alert-error\\">" + data.error + "</div>"; return; }
+    renderCredValidationResults(data.results);
+  });
+}
+
+function renderCredValidationResults(results) {
+  var statusBadge = {
+    ok:              "badge-ok",
+    success:         "badge-ok",
+    failed:          "badge-error",
+    error:           "badge-error",
+    not_configured:  "badge-warn",
+    not_implemented: "badge-muted",
+    inherited:       "badge-muted",
+    skip:            "badge-muted"
+  };
+  var html = "<table class=\\"device-table\\"><thead><tr>" +
+    "<th>Vendor</th><th>Role</th><th>Access Method</th><th>Result</th><th>Message</th>" +
+    "</tr></thead><tbody>";
+  results.forEach(function(r) {
+    var status = (r.status || "error");
+    var bc     = statusBadge[status] || "badge-error";
+    var msg    = r.message || r.error || "";
+    html += "<tr>" +
+      "<td>" + (r.vendor || "") + "</td>" +
+      "<td>" + (r.role || "") + "</td>" +
+      "<td>" + (r.access_method || "") + "</td>" +
+      "<td><span class=\\"badge " + bc + "\\">" + status + "</span></td>" +
+      "<td style=\\"font-size:12px\\">" + msg + "</td>" +
+      "</tr>";
+  });
+  html += "</tbody></table>";
+  document.getElementById("credValidationResults").innerHTML = html;
+}
+
+// ── Step 6 — Deploy ────────────────────────────────────────────────────────
+
+function goStep6() { setStep(6); }
+
+function deploySite() {
+  var validRows = state.validationRows.filter(function(r) { return r.status !== "error"; });
+  if (validRows.length === 0) { alert("No valid devices to deploy"); return; }
+
+  var div = document.getElementById("deployResult");
+  div.innerHTML = "<div class=\\"alert alert-info\\">Deploying " + validRows.length + " device(s) and triggering sync...</div>";
+
+  fetch("/api/deploy", {
+    method:  "POST",
+    headers: {"Content-Type": "application/json"},
+    body:    JSON.stringify({
+      rows: validRows, site_config: state.siteConfig,
+      trigger_sync: true, sync_category: "all"
+    })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.error) { div.innerHTML = "<div class=\\"alert alert-error\\">" + data.error + "</div>"; return; }
+
+    var onboard = data.onboard || {};
+    var sync    = data.sync;
+    var html = "<div class=\\"alert " + (onboard.failed ? "alert-warn" : "alert-ok") + "\\">" +
+      "<strong>Onboarding:</strong> " + onboard.ok + " created, " + onboard.failed + " failed, " +
+      onboard.total + " total.</div>";
+
+    if (sync) {
+      if (sync.triggered) {
+        html += "<div class=\\"alert alert-ok\\">Sync job triggered &mdash; status: " +
+          (sync.job_result && sync.job_result.job_result ? sync.job_result.job_result.status.label : "PENDING") +
+          "</div>";
+      } else {
+        html += "<div class=\\"alert alert-warn\\">Sync not triggered: " + (sync.error || "unknown reason") + "</div>";
+      }
+    }
+    div.innerHTML = html;
+  });
 }
 
 function generateReadyCsv() {
@@ -507,22 +853,34 @@ function generateReadyCsv() {
   .then(function(r) { return r.json(); })
   .then(function(data) {
     if (data.error) { alert(data.error); return; }
-    setStep(4);
     var siteSlug = state.siteConfig.site_name.toLowerCase().replace(/ /g, "-");
     document.getElementById("generateResult").innerHTML =
-      "<div class=\"alert alert-ok\">" +
+      "<div class=\\"alert alert-ok\\">" +
       "<strong>nautobot_ready CSV generated</strong><br>" +
       "File: <code>" + data.filename + "</code><br>" +
       "Devices: " + data.count + "<br>" +
       "Manifest: " + data.manifest +
       "</div>" +
-      "<div class=\"actions\" style=\"margin-top:12px\">" +
-      "<a href=\"/api/download-ready-csv/" + siteSlug + "\" class=\"btn btn-primary\">Download " + data.filename + "</a>" +
-      "</div>" +
-      "<div class=\"alert alert-info\" style=\"margin-top:12px\">" +
-      "Next step: <code>python3 nautobot_onboard_v2.py --csv " + data.filepath + "</code>" +
+      "<div class=\\"actions\\" style=\\"margin-top:12px\\">" +
+      "<a href=\\"/api/download-ready-csv/" + siteSlug + "\\" class=\\"btn btn-primary\\">Download " + data.filename + "</a>" +
       "</div>";
   });
+}
+
+function startNewSite() {
+  state.siteConfig = null;
+  state.devices = [];
+  state.validationRows = [];
+  state.credentialFields = [];
+  document.getElementById("deployResult").innerHTML = "";
+  document.getElementById("generateResult").innerHTML = "";
+  document.getElementById("regionInput").value = "";
+  document.getElementById("countryInput").value = "";
+  document.getElementById("stateInput").value = "";
+  document.getElementById("cityInput").value = "";
+  document.getElementById("siteName").value = "";
+  clearAllRows();
+  setStep(1);
 }
 
 init();

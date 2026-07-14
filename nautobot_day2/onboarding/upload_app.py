@@ -186,6 +186,32 @@ def api_site_types():
 
 # ── Tenant & credentials ──────────────────────────────────────────────────────
 
+@app.route('/api/vendor-full-selections')
+def api_vendor_full_selections():
+    """
+    Given ?vendors=aruba,juniper, return the full selections dict (every
+    enabled device_type -> every enabled access_method) for those vendors,
+    ready to hand straight to /api/create-tenant. Lets the tenant-creation
+    UI just be a simple set of vendor checkboxes instead of asking someone
+    to pick individual access methods up front -- the actual access method
+    per device gets chosen later, in the device data step.
+    """
+    vendors = request.args.get('vendors', '')
+    vendor_list = [v.strip() for v in vendors.split(',') if v.strip()]
+
+    selections = {}
+    for v in vendor_list:
+        dtypes = get_device_types_for_vendor(v)
+        if not dtypes:
+            continue
+        selections[v] = {}
+        for dtype_key in dtypes:
+            methods = get_access_methods(v, dtype_key)
+            selections[v][dtype_key] = list(methods.keys())
+
+    return jsonify(selections)
+
+
 @app.route('/api/tenant-profile/<slug>')
 def api_tenant_profile(slug):
     """Return a previously saved tenant profile JSON, if one exists."""
