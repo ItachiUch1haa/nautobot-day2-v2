@@ -429,7 +429,7 @@ def process_row(row, site_config, cache, row_num, check_nautobot=True):
 
 OUTPUT_COLS = [
     'device_name', 'role', 'vendor', 'platform', 'model', 'ip',
-    'managed_by', 'serial', 'status',
+    'managed_by', 'serial', 'status', 'stack_group',
     'tenant_slug', 'secrets_group', 'namespace',
     'region', 'country', 'state', 'city', 'site_name', 'site_type',
 ]

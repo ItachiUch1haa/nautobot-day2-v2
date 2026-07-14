@@ -1,6 +1,6 @@
-device_name,role,vendor,model,ip,site,tenant,serial,managed_by,status,namespace
-SW-BLR-01,access-switch,aruba,2930F,10.10.1.1/24,Bangalore-HQ,Customer-A,,,,
-SW-BLR-02,core-switch,juniper,EX2300,10.10.1.2/24,Bangalore-HQ,Customer-A,,,,
-FW-BLR-01,branch-fw,fortinet,FG-60F,10.10.1.3/24,Bangalore-HQ,Customer-A,,,,
-AP-BLR-01,ap,aruba,AP-515,10.10.1.4/24,Bangalore-HQ,Customer-A,,aruba-central,,
-AP-BLR-02,ap,juniper,AP32,10.10.1.5/24,Bangalore-HQ,Customer-A,,mist,,
+device_name,role,vendor,model,ip,site,tenant,serial,managed_by,status,namespace,stack_group
+SW-BLR-01,access-switch,aruba,2930F,10.10.1.1/24,Bangalore-HQ,Customer-A,,,,,
+SW-BLR-02,core-switch,juniper,EX2300,10.10.1.2/24,Bangalore-HQ,Customer-A,,,,,
+FW-BLR-01,branch-fw,fortinet,FG-60F,10.10.1.3/24,Bangalore-HQ,Customer-A,,,,,
+AP-BLR-01,ap,aruba,AP-515,10.10.1.4/24,Bangalore-HQ,Customer-A,,aruba-central,,,
+AP-BLR-02,ap,juniper,AP32,10.10.1.5/24,Bangalore-HQ,Customer-A,,mist,,,
