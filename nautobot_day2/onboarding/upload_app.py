@@ -276,6 +276,76 @@ def api_credential_requirements(slug):
     return jsonify({'slug': slug, 'fields': fields})
 
 
+@app.route('/api/save-credentials', methods=['POST'])
+def api_save_credentials():
+    """
+    Write submitted credential values into a tenant's .env file. Only
+    variable names that are actually part of that tenant's derived
+    requirements are accepted — this is not a general-purpose way to set
+    arbitrary environment variables. Values are never echoed back in the
+    response, logged, or included in any error message.
+    Body: { "slug": "...", "credentials": { "VAR_NAME": "value", ... } }
+    """
+    from create_tenant import derive_objects, validate_profile, LAB_PROFILES_DIR
+
+    data = request.json or {}
+    slug = data.get('slug')
+    credentials = data.get('credentials')
+
+    if not slug:
+        return jsonify({'error': "'slug' is required"}), 400
+    if not isinstance(credentials, dict) or not credentials:
+        return jsonify({'error': "'credentials' must be a non-empty object"}), 400
+
+    profile_path = os.path.join(PROFILES_DIR, f"{slug}.json")
+    if not os.path.exists(profile_path):
+        return jsonify({'error': 'No profile found for this tenant'}), 404
+    with open(profile_path) as f:
+        profile = json.load(f)
+    profile = validate_profile(profile)
+
+    derived = derive_objects(profile)
+    allowed_vars = set(derived['env_vars'])
+
+    unknown = [v for v in credentials if v not in allowed_vars]
+    if unknown:
+        return jsonify({
+            'error': 'Unrecognized variable name(s) for this tenant',
+            'unknown': unknown,
+        }), 400
+
+    env_path = os.path.join(LAB_PROFILES_DIR, f"{slug}.env")
+    if not os.path.exists(env_path):
+        return jsonify({'error': 'Tenant env file does not exist yet — create the tenant first'}), 404
+
+    with open(env_path) as f:
+        lines = f.readlines()
+
+    updated = []
+    new_lines = []
+    for line in lines:
+        stripped = line.rstrip('\n')
+        if '=' in stripped and not stripped.strip().startswith('#'):
+            var_name = stripped.split('=', 1)[0]
+            if var_name in credentials:
+                new_lines.append(f"{var_name}={credentials[var_name]}\n")
+                updated.append(var_name)
+                continue
+        new_lines.append(line)
+
+    with open(env_path, 'w') as f:
+        f.writelines(new_lines)
+    os.chmod(env_path, 0o600)
+
+    not_found = [v for v in credentials if v not in updated]
+
+    return jsonify({
+        'slug': slug,
+        'updated': updated,
+        'not_found_in_file': not_found,
+    })
+
+
 @app.route('/api/validate-row', methods=['POST'])
 def api_validate_row():
     """Validate a single device row in real time."""
