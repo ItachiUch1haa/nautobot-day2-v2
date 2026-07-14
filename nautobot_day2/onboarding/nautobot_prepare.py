@@ -114,6 +114,10 @@ MANAGED_BY_ALIASES = {
     'cisco fmc':     'fmc-api',
     'clearpass-api': 'clearpass-api',
     'clearpass':     'clearpass-api',
+    'fortigate':     'fortigate',
+    'via fortigate': 'fortigate',
+    'fortigate firewall': 'fortigate',
+    'forti-gate':    'fortigate',
 }
 
 # Platform alias normalization — maps common names to vendor_matrix slugs

@@ -428,6 +428,23 @@ def api_validate_csv():
     results  = []
     seen_ips = {}
 
+    # Pre-pass: map each site to its Fortinet firewall's secrets group, so
+    # Fortinet APs managed "via FortiGate" inherit that firewall's
+    # credentials instead of needing (and never having) their own.
+    # Fortinet's own architecture makes this the only real access path --
+    # a FortiAP cannot be reached independently of its controlling FortiGate.
+    site_firewall_sg = {}
+    for row in rows:
+        v = normalize_vendor(row.get('vendor', ''))
+        r = normalize_role(row.get('role', ''))
+        if v == 'fortinet' and r == 'branch-fw':
+            site = row.get('site', '').strip()
+            mb   = normalize_managed_by(row.get('managed_by', ''))
+            if site and mb and tenant_slug:
+                fw_sg = derive_secrets_group(v, r, mb, tenant_slug)
+                if fw_sg:
+                    site_firewall_sg[site] = fw_sg
+
     for i, row in enumerate(rows, 1):
         vendor     = normalize_vendor(row.get('vendor', ''))
         role       = normalize_role(row.get('role', ''))
@@ -491,7 +508,15 @@ def api_validate_csv():
 
         # Secrets group
         sg = ''
-        if vendor and role and managed_by and tenant_slug:
+        if vendor == 'fortinet' and role == 'ap' and managed_by == 'fortigate':
+            site = row.get('site', '').strip()
+            sg = site_firewall_sg.get(site, '')
+            if not sg:
+                warns.append(
+                    f"No Fortinet firewall found for site '{site}' in this CSV -- "
+                    "cannot determine which credentials this AP should use"
+                )
+        elif vendor and role and managed_by and tenant_slug:
             sg = derive_secrets_group(vendor, role, managed_by, tenant_slug) or ''
 
         if issues:

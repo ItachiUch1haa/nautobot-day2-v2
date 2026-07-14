@@ -362,12 +362,11 @@ VENDOR_MATRIX = {
                         "external_integration": "FortiManager",
                         "sync_handler": "fortinet_manager_api"
                     },
-                    "ssh": {
+                    "fortigate": {
                         "enabled": True,
-                        "label": "SSH only",
-                        "secrets_group_prefix": "fortinet-ssh",
-                        "env_vars": ["FORTINET_SSH_USER", "FORTINET_SSH_PASS"],
-                        "sync_handler": "fortinet_switch_ssh"
+                        "label": "Via FortiGate Firewall",
+                        "inherits_from": "firewall",
+                        "sync_handler": "fortinet_ap_via_fortigate"
                     }
                 },
                 "default_access": "fortimgr-api"
