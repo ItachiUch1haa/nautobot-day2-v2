@@ -20,6 +20,11 @@
       "firewall": [
         "ssh"
       ]
+    },
+    "cisco": {
+      "switch": [
+        "ssh"
+      ]
     }
   },
   "slug": "airowire-networks"

@@ -425,21 +425,72 @@ def create_external_integrations(profile, derived, dry_run, results):
             results.append([int_name, 'External Integration', f'FAILED {r.status_code}'])
 
 
+def _existing_env_vars(env_path):
+    """Return the set of variable names already present in an env file
+    (ignores comments, blank lines, and actual values — we only care what
+    keys exist, never the secret values themselves)."""
+    existing = set()
+    with open(env_path) as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith('#') and '=' in line:
+                existing.add(line.split('=', 1)[0])
+    return existing
+
+
 def write_env_file(profile, derived, dry_run, results):
+    """
+    Create the tenant's credential env file, or — if it already exists —
+    append only whatever variables are newly required (e.g. a second site
+    introduced a vendor this tenant didn't have before) without ever
+    touching lines that are already there. Real credential values already
+    filled in by a human are never overwritten or duplicated.
+    """
     print("\n── Env file template ────────────────────────────────")
     env_path = os.path.join(LAB_PROFILES_DIR, f"{profile['slug']}.env")
 
-    if os.path.exists(env_path):
-        print(f"  SKIP  {env_path} (already exists)")
+    file_exists = os.path.exists(env_path)
+    existing_vars = _existing_env_vars(env_path) if file_exists else set()
+    missing_vars = [v for v in derived['env_vars'] if v not in existing_vars]
+
+    if file_exists and not missing_vars:
+        print(f"  SKIP  {env_path} (already exists, all {len(derived['env_vars'])} vars present)")
         results.append([env_path, 'Env File', 'skipped'])
+        if not dry_run:
+            os.chmod(env_path, 0o600)
         return
 
     if dry_run:
-        print(f"  DRY   {env_path}")
-        print(f"        {len(derived['env_vars'])} variables:")
-        for var in derived['env_vars']:
-            print(f"          {var}=")
+        if file_exists:
+            print(f"  DRY   {env_path} (would append {len(missing_vars)} new variable(s))")
+            for var in missing_vars:
+                print(f"          {var}=")
+        else:
+            print(f"  DRY   {env_path}")
+            print(f"        {len(derived['env_vars'])} variables:")
+            for var in derived['env_vars']:
+                print(f"          {var}=")
         results.append([env_path, 'Env File', 'would create'])
+        return
+
+    if file_exists:
+        append_lines = [
+            "",
+            f"# ── Added {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ──────────────────────────────────",
+        ]
+        current_vendor = None
+        for var in missing_vars:
+            vendor_prefix = var.split('_')[0]
+            if vendor_prefix != current_vendor:
+                append_lines.append(f"# ── {vendor_prefix} ──────────────────────────────────")
+                current_vendor = vendor_prefix
+            append_lines.append(f"{var}=")
+        with open(env_path, 'a') as f:
+            f.write('\n'.join(append_lines) + '\n')
+        os.chmod(env_path, 0o600)
+        print(f"  OK    {env_path}")
+        print(f"        {len(missing_vars)} new variable(s) appended (existing values untouched)")
+        results.append([env_path, 'Env File', 'created'])
         return
 
     lines = [
@@ -464,6 +515,7 @@ def write_env_file(profile, derived, dry_run, results):
 
     with open(env_path, 'w') as f:
         f.write('\n'.join(lines))
+    os.chmod(env_path, 0o600)
 
     print(f"  OK    {env_path}")
     print(f"        {len(derived['env_vars'])} variables written")
