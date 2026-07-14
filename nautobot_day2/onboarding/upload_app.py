@@ -346,6 +346,130 @@ def api_save_credentials():
     })
 
 
+@app.route('/api/validate-credentials', methods=['POST'])
+def api_validate_credentials():
+    """
+    Test that a tenant's stored credentials actually work, reusing
+    vendor_test_app.py's connectivity-test functions rather than writing
+    new ones. Reads real values fresh from the tenant's .env file --
+    never trusts blank placeholders, never echoes values back.
+
+    Body: { "slug": "...", "tests": [
+        {"vendor": "...", "role": "...", "access_method": "...",
+         "platform": "..." (optional, defaults to the combo's default),
+         "ip": "..." (only needed for ssh access methods)}, ...
+    ] }
+    """
+    from dotenv import dotenv_values
+    from create_tenant import LAB_PROFILES_DIR
+    from vendor_matrix import needs_enable_mode
+    from vendor_test_app import test_ssh, test_mist, test_aruba_central, find_block
+
+    data = request.json or {}
+    slug = data.get('slug')
+    tests = data.get('tests')
+    if not slug:
+        return jsonify({'error': "'slug' is required"}), 400
+    if not isinstance(tests, list) or not tests:
+        return jsonify({'error': "'tests' must be a non-empty list"}), 400
+
+    env_path = os.path.join(LAB_PROFILES_DIR, f"{slug}.env")
+    if not os.path.exists(env_path):
+        return jsonify({'error': 'Tenant env file does not exist yet'}), 404
+    env = dotenv_values(env_path)
+    suffix = slug.upper().replace('-', '_')
+
+    results = []
+    for t in tests:
+        vendor        = t.get('vendor', '')
+        role          = t.get('role', '')
+        access_method = t.get('access_method', '')
+        ip            = t.get('ip', '')
+
+        dtype = vendor_to_device_type(vendor, role)
+        if not dtype:
+            results.append({'vendor': vendor, 'role': role, 'access_method': access_method,
+                             'status': 'error', 'message': f"Cannot map role '{role}' to a device type"})
+            continue
+
+        methods = get_access_methods(vendor, dtype)
+        method_def = methods.get(access_method)
+        if not method_def:
+            results.append({'vendor': vendor, 'role': role, 'access_method': access_method,
+                             'status': 'error', 'message': f"'{access_method}' not valid for {vendor}/{dtype}"})
+            continue
+
+        if method_def.get('inherits_from'):
+            results.append({'vendor': vendor, 'role': role, 'access_method': access_method,
+                             'status': 'inherited',
+                             'message': f"Credentials inherited from this site's {method_def['inherits_from']} -- covered by that test"})
+            continue
+
+        # Confirm required credential fields are actually filled in
+        env_vars_needed = method_def.get('env_vars', [])
+        full_names = [f"{v}_{suffix}" for v in env_vars_needed]
+        values = {v: env.get(full, '') for v, full in zip(env_vars_needed, full_names)}
+        missing = [v for v, val in values.items() if not val]
+        if missing:
+            results.append({'vendor': vendor, 'role': role, 'access_method': access_method,
+                             'status': 'not_configured',
+                             'message': f"Credentials not filled in yet: {missing}"})
+            continue
+
+        if access_method == 'ssh':
+            platform = t.get('platform') or get_default_platform(vendor, dtype)
+            platforms = get_platforms_for_combo(vendor, dtype)
+            yaml_key = (platforms.get(platform) or {}).get('yaml_key')
+            if not yaml_key:
+                results.append({'vendor': vendor, 'role': role, 'access_method': access_method,
+                                 'status': 'not_implemented',
+                                 'message': f"No SSH command mapping yet for {vendor}/{platform}"})
+                continue
+            block = find_block(yaml_key)
+            if not block:
+                results.append({'vendor': vendor, 'role': role, 'access_method': access_method,
+                                 'status': 'error', 'message': f"'{yaml_key}' not found in vendor_commands.yaml"})
+                continue
+            if not ip:
+                results.append({'vendor': vendor, 'role': role, 'access_method': access_method,
+                                 'status': 'error', 'message': "'ip' is required for ssh tests"})
+                continue
+            enable = ''
+            if needs_enable_mode(vendor, dtype, access_method):
+                enable_var = f"{method_def.get('enable_env_var','')}_{suffix}"
+                enable = env.get(enable_var, '')
+            user_var, pass_var = full_names[0], full_names[1]
+            test_result = test_ssh(ip, yaml_key, block, env.get(user_var, ''), env.get(pass_var, ''), enable)
+
+        elif access_method == 'mist':
+            test_result = test_mist(
+                token=values.get('MIST_API_TOKEN', ''),
+                org_id=values.get('MIST_ORG_ID', ''),
+                base_url='https://api.mist.com',
+            )
+
+        elif access_method == 'aruba-central':
+            test_result = test_aruba_central(
+                client_id=values.get('ARUBA_CLIENT_ID', ''),
+                client_secret=values.get('ARUBA_CLIENT_SECRET', ''),
+                refresh_token=values.get('ARUBA_REFRESH_TOKEN', ''),
+                base_url=values.get('ARUBA_CENTRAL_BASE_URL', ''),
+            )
+
+        else:
+            results.append({'vendor': vendor, 'role': role, 'access_method': access_method,
+                             'status': 'not_implemented',
+                             'message': f"Live test for '{access_method}' not built yet -- credentials are present, just unverified"})
+            continue
+
+        test_result['vendor'] = vendor
+        test_result['role'] = role
+        test_result['access_method'] = access_method
+        results.append(test_result)
+
+    return jsonify({'slug': slug, 'results': results})
+
+
 @app.route('/api/validate-row', methods=['POST'])
 def api_validate_row():
     """Validate a single device row in real time."""

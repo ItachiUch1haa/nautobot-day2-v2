@@ -17,12 +17,14 @@ VENDOR_MATRIX = {
                     "arubaos": {
                         "label": "ArubaOS (AOS-S)",
                         "napalm_driver": "",
-                        "default": True
+                        "default": True,
+                        "yaml_key": "aruba_os"
                     },
                     "arubaoscx": {
                         "label": "ArubaOS-CX (AOS-CX)",
                         "napalm_driver": "",
-                        "default": False
+                        "default": False,
+                        "yaml_key": "aruba_aoscx"
                     }
                 },
                 "access_methods": {
@@ -51,7 +53,8 @@ VENDOR_MATRIX = {
                     "arubaos": {
                         "label": "ArubaOS AP",
                         "napalm_driver": "",
-                        "default": True
+                        "default": True,
+                        "yaml_key": "aruba_ap_aos10"
                     }
                 },
                 "access_methods": {
@@ -116,7 +119,8 @@ VENDOR_MATRIX = {
                     "junos": {
                         "label": "Junos",
                         "napalm_driver": "junos",
-                        "default": True
+                        "default": True,
+                        "yaml_key": "juniper_junos"
                     }
                 },
                 "access_methods": {
@@ -167,7 +171,8 @@ VENDOR_MATRIX = {
                     "junos-srx": {
                         "label": "Junos SRX",
                         "napalm_driver": "junos",
-                        "default": True
+                        "default": True,
+                        "yaml_key": "juniper_srx"
                     }
                 },
                 "access_methods": {
@@ -203,17 +208,20 @@ VENDOR_MATRIX = {
                     "iosxe": {
                         "label": "IOS-XE",
                         "napalm_driver": "ios",
-                        "default": True
+                        "default": True,
+                        "yaml_key": "cisco_iosxe"
                     },
                     "ios": {
                         "label": "IOS",
                         "napalm_driver": "ios",
-                        "default": False
+                        "default": False,
+                        "yaml_key": "cisco_ios"
                     },
                     "nxos": {
                         "label": "NX-OS",
                         "napalm_driver": "nxos",
-                        "default": False
+                        "default": False,
+                        "yaml_key": "cisco_nxos"
                     }
                 },
                 "access_methods": {
@@ -270,12 +278,14 @@ VENDOR_MATRIX = {
                     "asa": {
                         "label": "ASA",
                         "napalm_driver": "",
-                        "default": True
+                        "default": True,
+                        "yaml_key": "cisco_asa"
                     },
                     "ftd": {
                         "label": "FTD",
                         "napalm_driver": "",
-                        "default": False
+                        "default": False,
+                        "yaml_key": "cisco_ftd"
                     }
                 },
                 "access_methods": {
@@ -313,7 +323,8 @@ VENDOR_MATRIX = {
                     "fortios-switch": {
                         "label": "FortiOS Switch",
                         "napalm_driver": "",
-                        "default": True
+                        "default": True,
+                        "yaml_key": "fortinet_switch"
                     }
                 },
                 "access_methods": {
@@ -378,7 +389,8 @@ VENDOR_MATRIX = {
                     "fortios": {
                         "label": "FortiOS",
                         "napalm_driver": "",
-                        "default": True
+                        "default": True,
+                        "yaml_key": "fortios"
                     }
                 },
                 "access_methods": {
