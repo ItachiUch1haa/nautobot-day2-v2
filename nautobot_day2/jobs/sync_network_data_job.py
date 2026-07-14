@@ -14,7 +14,7 @@ from nautobot.extras.jobs import Job, StringVar, ChoiceVar, BooleanVar, ObjectVa
 from nautobot.dcim.models import Location
 from nautobot.tenancy.models import Tenant
 
-from ..tasks import sync_device_task, sync_summary_callback
+from ..tasks import sync_device_task, sync_summary_callback, _load_tenant_env
 
 # Path to sync engine — resolved relative to this installed package, so it
 # works the same whether run from a git checkout or a pip-installed App.
@@ -26,22 +26,17 @@ LAB_DIR        = ONBOARDING_DIR
 name = "NOC Network Sync"
 
 
-def _load_tenant_env(tenant_slug):
-    """Load tenant credentials into os.environ."""
-    for path in [
-        os.path.join(ONBOARDING_DIR, "profiles", f"{tenant_slug}.env"),
-        f"/etc/nautobot/tenants/{tenant_slug}.env",
-    ]:
-        if not os.path.exists(path):
-            continue
-        with open(path) as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith('#') and '=' in line:
-                    k, _, v = line.partition('=')
-                    os.environ[k.strip()] = v.strip()
-        return path
-    return None
+def _slugify(name):
+    """Same slug logic as create_tenant.py -- must stay identical since the
+    tenant slug used for env-file lookup and secrets-group naming is an
+    app-level concept, not a native Nautobot Tenant field (Tenant has no
+    .slug attribute in this Nautobot version)."""
+    import re
+    slug = name.lower().strip()
+    slug = re.sub(r'[^\w\s-]', '', slug)
+    slug = re.sub(r'[\s_]+', '-', slug)
+    slug = re.sub(r'-+', '-', slug)
+    return slug.strip('-')
 
 
 def _load_sync():
@@ -95,47 +90,40 @@ class SyncNetworkData(Job):
         soft_time_limit  = 900
         time_limit       = 1200
 
-    def run(self, data, commit):
-        tenant_obj  = data["tenant"]
-        site_obj    = data["site"]
-        category    = data["category"]
-        dry_run     = data["dry_run"]
-        tenant_slug = tenant_obj.slug
+    def run(self, tenant, site, category, dry_run):
+        tenant_obj  = tenant
+        site_obj    = site
+        tenant_slug = _slugify(tenant_obj.name)
         site_name   = site_obj.name
 
-        self.log_info(
-            obj=site_obj,
-            message=f"Starting sync — site:{site_name} tenant:{tenant_slug} category:{category}"
-        )
+        self.logger.info(f"Starting sync — site:{site_name} tenant:{tenant_slug} category:{category}")
 
         # Load credentials
         env_path = _load_tenant_env(tenant_slug)
         if env_path:
-            self.log_info(message=f"Credentials loaded from {env_path}")
+            self.logger.info(f"Credentials loaded from {env_path}")
         else:
-            self.log_warning(
-                message=f"No env file found for tenant '{tenant_slug}' — credentials may be missing"
-            )
+            self.logger.warning(f"No env file found for tenant '{tenant_slug}' — credentials may be missing")
 
         # Load sync engine
         try:
             sync = _load_sync()
         except Exception as e:
-            self.log_failure(message=f"Failed to load sync engine: {e}")
+            self.logger.error(f"Failed to load sync engine: {e}")
             return
 
         # Get devices
         try:
             devices = sync.get_devices_for_site(site_name, tenant_slug, category)
         except Exception as e:
-            self.log_failure(message=f"Failed to get devices: {e}")
+            self.logger.error(f"Failed to get devices: {e}")
             return
 
         if not devices:
-            self.log_warning(message=f"No devices found for site '{site_name}' tenant '{tenant_slug}'")
+            self.logger.warning(f"No devices found for site '{site_name}' tenant '{tenant_slug}'")
             return
 
-        self.log_info(message=f"Found {len(devices)} devices to sync")
+        self.logger.info(f"Found {len(devices)} devices to sync")
 
         # Fan out — one Celery task per device instead of looping here.
         # This Job's own run() dispatches and returns; a summary log entry
@@ -155,13 +143,11 @@ class SyncNetworkData(Job):
             tenant_slug=tenant_slug,
         ))
 
-        self.log_info(
-            message=(
-                f"Dispatched {len(devices)} device sync task(s) to the "
-                f"'nautobot_day2_sync' queue — this Job reports 'dispatched', "
-                f"not 'complete'. A summary log entry will be added to this "
-                f"Job's log once every device task finishes."
-            )
+        self.logger.info(
+            f"Dispatched {len(devices)} device sync task(s) to the "
+            f"'nautobot_day2_sync' queue — this Job reports 'dispatched', "
+            f"not 'complete'. A summary log entry will be added to this "
+            f"Job's log once every device task finishes."
         )
 
 
@@ -195,24 +181,22 @@ class SyncAllSites(Job):
         soft_time_limit  = 3600
         time_limit       = 4800
 
-    def run(self, data, commit):
-        tenant_obj  = data["tenant"]
-        category    = data["category"]
-        dry_run     = data["dry_run"]
-        tenant_slug = tenant_obj.slug
+    def run(self, tenant, category, dry_run):
+        tenant_obj  = tenant
+        tenant_slug = _slugify(tenant_obj.name)
 
-        self.log_info(message=f"Syncing all sites for tenant: {tenant_obj.name}")
+        self.logger.info(f"Syncing all sites for tenant: {tenant_obj.name}")
 
         # Load credentials once for this tenant
         env_path = _load_tenant_env(tenant_slug)
         if env_path:
-            self.log_info(message=f"Credentials loaded from {env_path}")
+            self.logger.info(f"Credentials loaded from {env_path}")
 
         # Load sync engine
         try:
             sync = _load_sync()
         except Exception as e:
-            self.log_failure(message=f"Failed to load sync engine: {e}")
+            self.logger.error(f"Failed to load sync engine: {e}")
             return
 
         # Find all sites that have devices for this tenant
@@ -220,7 +204,7 @@ class SyncAllSites(Job):
             devices__tenant=tenant_obj
         ).distinct()
 
-        self.log_info(message=f"Found {sites.count()} sites with devices")
+        self.logger.info(f"Found {sites.count()} sites with devices")
 
         # Gather every device across every site first, tagged with its own
         # site_key, then fan out ALL of them as a single dispatch. Per-site
@@ -231,14 +215,14 @@ class SyncAllSites(Job):
         for site in sites:
             try:
                 devices = sync.get_devices_for_site(site.name, tenant_slug, category)
-                self.log_info(obj=site, message=f"{site.name}: {len(devices)} devices")
+                self.logger.info(f"{site.name}: {len(devices)} devices")
                 site_key = f"{tenant_slug}:{site.name}"
                 all_devices.extend((device, site_key) for device in devices)
             except Exception as e:
-                self.log_warning(message=f"Site {site.name} failed to enumerate devices: {str(e)[:80]}")
+                self.logger.warning(f"Site {site.name} failed to enumerate devices: {str(e)[:80]}")
 
         if not all_devices:
-            self.log_warning(message="No devices found across any site for this tenant")
+            self.logger.warning("No devices found across any site for this tenant")
             return
 
         header = group(
@@ -251,12 +235,10 @@ class SyncAllSites(Job):
             tenant_slug=tenant_slug,
         ))
 
-        self.log_info(
-            message=(
-                f"Dispatched {len(all_devices)} device sync task(s) across "
-                f"{sites.count()} site(s) to the 'nautobot_day2_sync' queue — "
-                f"a summary log entry will be added once every device task finishes."
-            )
+        self.logger.info(
+            f"Dispatched {len(all_devices)} device sync task(s) across "
+            f"{sites.count()} site(s) to the 'nautobot_day2_sync' queue — "
+            f"a summary log entry will be added once every device task finishes."
         )
 
 from nautobot.core.celery import register_jobs

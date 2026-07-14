@@ -676,29 +676,27 @@ def api_validate_csv():
     return jsonify({'rows': results, 'summary': summary})
 
 
-@app.route('/api/generate-ready-csv', methods=['POST'])
-def api_generate_ready_csv():
-    """Generate nautobot_ready CSV from validated rows + site config."""
-    data        = request.json
-    rows        = data.get('rows', [])
-    site_config = data.get('site_config', {})
+OUTPUT_COLS_READY = [
+    'device_name', 'role', 'vendor', 'platform', 'model', 'ip',
+    'managed_by', 'serial', 'status',
+    'tenant_slug', 'secrets_group', 'namespace',
+    'region', 'country', 'state', 'city', 'site_name', 'site_type',
+]
+
+
+def _build_ready_rows(rows, site_config):
+    """
+    Shared row-shaping logic used by both /api/generate-ready-csv (writes a
+    file for manual download) and /api/deploy (feeds process_csv() directly,
+    in-process, no file round-trip needed). Keeping this in one place means
+    the two paths can never quietly drift apart.
+    """
     tenant_slug = site_config.get('tenant_slug', '')
-
-    if not rows or not site_config:
-        return jsonify({'error': 'rows and site_config required'}), 400
-
-    output_cols = [
-        'device_name', 'role', 'vendor', 'platform', 'model', 'ip',
-        'managed_by', 'serial', 'status',
-        'tenant_slug', 'secrets_group', 'namespace',
-        'region', 'country', 'state', 'city', 'site_name', 'site_type',
-    ]
-
     out_rows = []
     for row in rows:
         if row.get('status') == 'error':
             continue
-        out = {
+        out_rows.append({
             'device_name': row.get('device_name', ''),
             'role':        row.get('role', ''),
             'vendor':      row.get('vendor', ''),
@@ -717,8 +715,23 @@ def api_generate_ready_csv():
             'city':        site_config.get('city', ''),
             'site_name':   site_config.get('site_name', ''),
             'site_type':   site_config.get('site_type', ''),
-        }
-        out_rows.append(out)
+        })
+    return out_rows
+
+
+@app.route('/api/generate-ready-csv', methods=['POST'])
+def api_generate_ready_csv():
+    """Generate nautobot_ready CSV from validated rows + site config."""
+    data        = request.json
+    rows        = data.get('rows', [])
+    site_config = data.get('site_config', {})
+    tenant_slug = site_config.get('tenant_slug', '')
+
+    if not rows or not site_config:
+        return jsonify({'error': 'rows and site_config required'}), 400
+
+    output_cols = OUTPUT_COLS_READY
+    out_rows = _build_ready_rows(rows, site_config)
 
     if not out_rows:
         return jsonify({'error': 'No valid rows to export'}), 400
@@ -755,6 +768,106 @@ def api_generate_ready_csv():
         'count':    len(out_rows),
         'manifest': mpath,
     })
+
+
+@app.route('/api/deploy', methods=['POST'])
+def api_deploy():
+    """
+    Create devices in Nautobot from validated rows, then optionally trigger
+    the tenant-wide sync Job over Nautobot's own REST API. Reuses
+    nautobot_onboard_v2.py's process_csv() directly, in-process -- no file
+    round-trip needed, since it already accepts row dicts.
+
+    Body: { "rows": [...], "site_config": {...},
+            "trigger_sync": true (default), "sync_category": "all" (default) }
+    """
+    import nautobot_onboard_v2
+
+    data         = request.json or {}
+    rows         = data.get('rows', [])
+    site_config  = data.get('site_config', {})
+    trigger_sync = data.get('trigger_sync', True)
+    sync_category = data.get('sync_category', 'all')
+    tenant_slug  = site_config.get('tenant_slug', '')
+
+    if not rows or not site_config:
+        return jsonify({'error': 'rows and site_config required'}), 400
+
+    ready_rows = _build_ready_rows(rows, site_config)
+    if not ready_rows:
+        return jsonify({'error': 'No valid rows to deploy'}), 400
+
+    # Onboard: create devices, IPs, controllers in Nautobot
+    nautobot_onboard_v2.init_cache()
+    onboard_results = nautobot_onboard_v2.process_csv(ready_rows, dry_run=False)
+
+    ok     = sum(1 for r in onboard_results if r[1] == 'OK')
+    failed = sum(1 for r in onboard_results if r[1] == 'FAILED')
+
+    response = {
+        'onboard': {
+            'ok': ok,
+            'failed': failed,
+            'total': len(ready_rows),
+            'results': onboard_results,
+        },
+        'sync': None,
+    }
+
+    if not trigger_sync:
+        return jsonify(response)
+
+    if not tenant_slug:
+        response['sync'] = {'error': "No tenant_slug in site_config -- cannot trigger sync"}
+        return jsonify(response)
+
+    # Look up the tenant's Nautobot object ID (the sync Job needs the real
+    # ObjectVar reference). Nautobot's Tenant API doesn't support filtering
+    # by slug -- so we read the tenant's saved profile (same file
+    # create_tenant.py writes) to get its real Name, and filter by that.
+    profile_path = os.path.join(PROFILES_DIR, f"{tenant_slug}.json")
+    if not os.path.exists(profile_path):
+        response['sync'] = {'error': f"No saved profile for tenant '{tenant_slug}' -- cannot look up its Nautobot ID"}
+        return jsonify(response)
+    with open(profile_path) as f:
+        tenant_profile = json.load(f)
+    tenant_name = tenant_profile.get('name', '')
+
+    tr = client.get('tenancy/tenants', params={'name': tenant_name, 'limit': 1})
+    tenant_results = tr.json().get('results', []) if tr.ok else []
+    if not tenant_results:
+        response['sync'] = {'error': f"Tenant '{tenant_name}' not found in Nautobot"}
+        return jsonify(response)
+    tenant_id = tenant_results[0]['id']
+
+    # Look up the "Sync All Sites for Tenant" Job's ID by name
+    jr = client.get('extras/jobs', params={'name': 'Sync All Sites for Tenant', 'limit': 1})
+    job_results = jr.json().get('results', []) if jr.ok else []
+    if not job_results:
+        response['sync'] = {'error': "'Sync All Sites for Tenant' job not found -- is it registered?"}
+        return jsonify(response)
+    job_id = job_results[0]['id']
+
+    run_resp = client.post(f'extras/jobs/{job_id}/run', {
+        'data': {
+            'tenant': tenant_id,
+            'category': sync_category,
+            'dry_run': False,
+        }
+    })
+
+    if run_resp.ok:
+        response['sync'] = {
+            'triggered': True,
+            'job_result': run_resp.json(),
+        }
+    else:
+        response['sync'] = {
+            'triggered': False,
+            'error': f"HTTP {run_resp.status_code}: {run_resp.text[:300]}",
+        }
+
+    return jsonify(response)
 
 
 @app.route('/api/download-ready-csv/<site_name>')

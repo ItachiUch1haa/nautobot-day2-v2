@@ -85,7 +85,10 @@ services:
     depends_on:
       - nautobot
       - volume-init
-    environment: *nautobot_env
+    environment:
+      <<: *nautobot_env
+      NAUTOBOT_URL: http://nautobot:8080
+      NAUTOBOT_TOKEN: ${NAUTOBOT_SUPERUSER_API_TOKEN:-0123456789abcdef0123456789abcdef01234567}
     volumes:
       - ./nautobot_config.py:/opt/nautobot/nautobot_config.py:ro
       - tenants_data:/opt/nautobot/nautobot_day2_tenants
