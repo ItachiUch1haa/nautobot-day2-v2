@@ -561,26 +561,25 @@ def api_validate_row():
     })
 
 
-@app.route('/api/validate-csv', methods=['POST'])
-def api_validate_csv():
-    """Validate an uploaded CSV file."""
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file uploaded'}), 400
+def _validate_rows(rows, tenant_slug):
+    """
+    Core row-validation logic (vendor/role/IP checks, access-method
+    validation, secrets-group derivation, stack-grouping consistency)
+    shared by both the CSV-upload path and the interactive JSON path --
+    so the interactive device-entry table gets the same real,
+    cross-row-aware validation instead of checking each row in total
+    isolation.
 
-    f           = request.files['file']
-    tenant_slug = request.form.get('tenant_slug', '')
-    content     = f.read().decode('utf-8')
-    reader      = csv.DictReader(io.StringIO(content))
-    rows        = [{k.strip(): (v.strip() if v else '') for k, v in r.items()}
-                   for r in reader]
-
+    Returns (results, summary) on success, or (None, {'error': ...}) if
+    the input itself was invalid (empty, missing required columns).
+    """
     if not rows:
-        return jsonify({'error': 'CSV is empty'}), 400
+        return None, {'error': 'No rows to validate'}
 
     required_cols = ['device_name', 'role', 'vendor', 'model', 'ip']
     missing_cols  = [c for c in required_cols if c not in rows[0]]
     if missing_cols:
-        return jsonify({'error': f"Missing columns: {missing_cols}"}), 400
+        return None, {'error': f"Missing columns: {missing_cols}"}
 
     results  = []
     seen_ips = {}
@@ -759,6 +758,44 @@ def api_validate_csv():
         'errors': sum(1 for r in results if r['status'] == 'error'),
         'ready':  sum(1 for r in results if r['status'] != 'error'),
     }
+    return results, summary
+
+
+@app.route('/api/validate-csv', methods=['POST'])
+def api_validate_csv():
+    """Validate an uploaded CSV file."""
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file uploaded'}), 400
+
+    f           = request.files['file']
+    tenant_slug = request.form.get('tenant_slug', '')
+    content     = f.read().decode('utf-8')
+    reader      = csv.DictReader(io.StringIO(content))
+    rows        = [{k.strip(): (v.strip() if v else '') for k, v in r.items()}
+                   for r in reader]
+
+    results, summary = _validate_rows(rows, tenant_slug)
+    if results is None:
+        return jsonify(summary), 400
+    return jsonify({'rows': results, 'summary': summary})
+
+
+@app.route('/api/validate-rows', methods=['POST'])
+def api_validate_rows():
+    """
+    Same validation as /api/validate-csv, but for rows submitted directly
+    as JSON -- used by the interactive device-entry table so it gets the
+    same real, cross-row-aware validation (stack grouping, cross-vendor
+    checks, etc.) instead of validating each row alone.
+    Body: { "rows": [...], "tenant_slug": "..." }
+    """
+    data        = request.json or {}
+    rows        = data.get('rows', [])
+    tenant_slug = data.get('tenant_slug', '')
+
+    results, summary = _validate_rows(rows, tenant_slug)
+    if results is None:
+        return jsonify(summary), 400
     return jsonify({'rows': results, 'summary': summary})
 
 

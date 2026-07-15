@@ -350,9 +350,41 @@ def get_or_create_ip(address, namespace_id, tenant_id, status_id, prefix_id, dry
 
 # ── Device ────────────────────────────────────────────────────────────────────
 
+def get_or_create_virtual_chassis(name, dry_run, vc_cache):
+    """
+    Find or create a VirtualChassis by name. Represents a real physical
+    stack (Aruba backplane stacking / VSF) as ONE logical device made of
+    N physical members -- not to be confused with a firewall HA pair,
+    which uses Nautobot's separate DeviceRedundancyGroup model instead
+    since each unit there keeps its own independent identity.
+    """
+    if name in vc_cache:
+        return vc_cache[name], 'cached'
+
+    r = client.get('dcim/virtual-chassis', params={'name': name, 'limit': 10})
+    if r.ok:
+        for obj in r.json().get('results', []):
+            if obj.get('name') == name:
+                vc_cache[name] = obj['id']
+                return obj['id'], 'exists'
+
+    if dry_run:
+        vc_cache[name] = f'DRY:{name}'
+        return f'DRY:{name}', 'would create'
+
+    r = api_post('dcim/virtual-chassis', {"name": name})
+    if r.status_code == 201:
+        new_id = r.json()['id']
+        vc_cache[name] = new_id
+        return new_id, 'created'
+    return None, f"FAILED {r.status_code}: {r.text[:100]}"
+
+
 def get_or_create_device(row, site_id, dt_id, role_id, platform_id,
-                          tenant_id, status_id, sg_id, dry_run):
-    """Find or create a device."""
+                          tenant_id, status_id, sg_id, dry_run,
+                          vc_id=None, vc_position=None):
+    """Find or create a device. If vc_id is given, links this device
+    into that VirtualChassis at vc_position (a real stack member)."""
     # Check if already exists
     r = client.get('dcim/devices', params={'name': row['device_name'], 'limit': 10})
     if r.ok:
@@ -382,6 +414,10 @@ def get_or_create_device(row, site_id, dt_id, role_id, platform_id,
         payload["serial"] = row['serial'].strip()
     if sg_id:
         payload["secrets_group"] = {"id": sg_id}
+    if vc_id and not str(vc_id).startswith('DRY:'):
+        payload["virtual_chassis"] = {"id": vc_id}
+        if vc_position:
+            payload["vc_position"] = int(vc_position)
 
     r = api_post('dcim/devices', payload)
     if r.status_code == 201:
@@ -567,9 +603,33 @@ def process_csv(rows, dry_run):
     pfx_cache  = {}   # namespace|prefix → prefix_id
     ctrl_cache = {}   # controller_name → controller_id
     grp_cache  = {}   # group_name → group_id
+    vc_cache   = {}   # vc_name → virtual_chassis_id
     results    = []
 
     print(f"\n  Processing {len(rows)} devices...\n")
+
+    # Pre-pass: create one VirtualChassis per (site, stack_group) group
+    # present in this batch, so device creation below can link members to
+    # it. A lone row with a stack_group value isn't treated as a real
+    # stack -- needs 2+ members to mean anything.
+    vc_lookup = {}
+    vc_master_candidate = {}
+    stack_rows = {}
+    for row in rows:
+        sg = row.get('stack_group', '').strip()
+        if not sg:
+            continue
+        site_key = f"{row['region']}|{row['country']}|{row['state']}|{row['city']}|{row['site_name']}"
+        stack_rows.setdefault((site_key, sg), []).append(row)
+
+    for (site_key, sg), members in stack_rows.items():
+        if len(members) < 2:
+            continue
+        vc_name = f"{members[0]['site_name']}-{sg}"
+        vc_id, vc_msg = get_or_create_virtual_chassis(vc_name, dry_run, vc_cache)
+        if vc_msg in ('created', 'would create'):
+            print(f"  + virtual chassis: {vc_name} ({vc_msg})")
+        vc_lookup[(site_key, sg)] = vc_id
 
     for i, row in enumerate(rows, 1):
         name = row['device_name']
@@ -625,24 +685,39 @@ def process_csv(rows, dry_run):
             results.append([name, 'FAILED', f"device type: {dt_msg}"])
             continue
 
+        # ── Stack membership (VirtualChassis) ──────────────────────
+        sg_stack   = row.get('stack_group', '').strip()
+        vc_id      = None
+        vc_position = row.get('vc_position', '').strip() or None
+        if sg_stack:
+            vc_id = vc_lookup.get((site_key, sg_stack))
+
         # ── Prefix ────────────────────────────────────────────────
-        pfx_id, pfx_msg = get_or_create_prefix(
-            row['ip'], ns_id, tenant_id, active_id, dry_run, pfx_cache)
-        if pfx_msg in ('created', 'would create'):
-            print(f"         + prefix: {parent_prefix_str(row['ip'])} ({pfx_msg})")
+        # Skipped for stack member rows with no IP of their own -- the
+        # whole stack is reached through the master's IP, so there's
+        # nothing to create here for these rows.
+        pfx_id = None
+        if row['ip'].strip():
+            pfx_id, pfx_msg = get_or_create_prefix(
+                row['ip'], ns_id, tenant_id, active_id, dry_run, pfx_cache)
+            if pfx_msg in ('created', 'would create'):
+                print(f"         + prefix: {parent_prefix_str(row['ip'])} ({pfx_msg})")
 
         # ── IP address ────────────────────────────────────────────
-        ip_id, ip_msg = get_or_create_ip(
-            row['ip'], ns_id, tenant_id, active_id, pfx_id, dry_run)
-        if ip_msg in ('created', 'would create'):
-            print(f"         + IP: {row['ip']} ({ip_msg})")
-        if ip_msg.startswith('FAILED'):
-            print(f"         ! IP warning: {ip_msg}")
+        ip_id = None
+        if row['ip'].strip():
+            ip_id, ip_msg = get_or_create_ip(
+                row['ip'], ns_id, tenant_id, active_id, pfx_id, dry_run)
+            if ip_msg in ('created', 'would create'):
+                print(f"         + IP: {row['ip']} ({ip_msg})")
+            if ip_msg.startswith('FAILED'):
+                print(f"         ! IP warning: {ip_msg}")
 
         # ── Device ────────────────────────────────────────────────
         dev_id, dev_msg = get_or_create_device(
             row, site_id, dt_id, role_id, plat_id,
-            tenant_id, active_id, sg_id, dry_run)
+            tenant_id, active_id, sg_id, dry_run,
+            vc_id=vc_id, vc_position=vc_position)
         if dev_msg.startswith('FAILED'):
             print(f"         ! FAIL device: {dev_msg}")
             results.append([name, 'FAILED', dev_msg])
@@ -650,9 +725,19 @@ def process_csv(rows, dry_run):
         print(f"         {'DRY ' if dry_run else 'OK  '} device ({dev_msg})")
 
         # ── Primary IP ────────────────────────────────────────────
-        ip_link = set_primary_ip(dev_id, ip_id, dry_run)
-        if 'FAILED' in str(ip_link):
-            print(f"         ! primary IP: {ip_link}")
+        # Only set for rows that actually have their own IP -- stack
+        # member rows without one correctly have nothing to link here.
+        if ip_id:
+            ip_link = set_primary_ip(dev_id, ip_id, dry_run)
+            if 'FAILED' in str(ip_link):
+                print(f"         ! primary IP: {ip_link}")
+            # The row that actually carries the stack's management IP is
+            # the provisioning-time default for VirtualChassis.master --
+            # real Commander election happens on the hardware itself, so
+            # sync-time discovery (Phase C) is what keeps this accurate
+            # if reality differs.
+            if vc_id and sg_stack:
+                vc_master_candidate[(site_key, sg_stack)] = dev_id
 
         # ── Controller (API-managed devices) ──────────────────────
         managed_by = row.get('managed_by', '').strip()
@@ -684,6 +769,21 @@ def process_csv(rows, dry_run):
                 print(f"         ! device→group: {lnk}")
 
         results.append([name, 'OK', 'would create' if dry_run else dev_msg])
+
+    # Post-pass: set each VirtualChassis's master to the device that
+    # carried the stack's management IP.
+    if not dry_run:
+        for (site_key, sg_stack), master_dev_id in vc_master_candidate.items():
+            vc_id = vc_lookup.get((site_key, sg_stack))
+            if not vc_id or str(vc_id).startswith('DRY:'):
+                continue
+            r = client.patch(f'dcim/virtual-chassis/{vc_id}', {
+                "master": {"id": master_dev_id}
+            })
+            if r.status_code == 200:
+                print(f"  + virtual chassis master set: {sg_stack}")
+            else:
+                print(f"  ! virtual chassis master FAILED for {sg_stack}: {r.status_code}")
 
     return results
 
