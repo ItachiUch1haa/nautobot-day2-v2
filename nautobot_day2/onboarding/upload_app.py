@@ -602,13 +602,62 @@ def api_validate_csv():
                 if fw_sg:
                     site_firewall_sg[site] = fw_sg
 
+    # Pre-pass: group rows into stacks by stack_group. Only one row per
+    # stack needs a management IP (the whole stack is reached through it);
+    # the rest can leave IP blank. Cross-vendor stacks aren't supported --
+    # you can't stack an Aruba switch with a Juniper one. vc_position is
+    # taken from an explicit column if present, otherwise auto-assigned by
+    # row order within the group.
+    stack_groups = {}
+    for idx, row in enumerate(rows):
+        sg = row.get('stack_group', '').strip()
+        if sg:
+            stack_groups.setdefault(sg, []).append(idx)
+
+    stack_ip_bearer    = {}
+    stack_vc_position  = {}
+    stack_extra_issues = {}
+    stack_extra_warns  = {}
+
+    for sg, idxs in stack_groups.items():
+        if len(idxs) < 2:
+            continue  # a lone row with a stack_group isn't really a stack
+
+        vendors_in_group = set(normalize_vendor(rows[idx].get('vendor', '')) for idx in idxs)
+        if len(vendors_in_group) > 1:
+            for idx in idxs:
+                stack_extra_issues.setdefault(idx, []).append(
+                    f"Stack group '{sg}' has mixed vendors ({', '.join(sorted(vendors_in_group))}) -- not supported"
+                )
+
+        for pos, idx in enumerate(idxs, 1):
+            explicit_pos = rows[idx].get('vc_position', '').strip()
+            stack_vc_position[idx] = explicit_pos if explicit_pos else str(pos)
+
+        ip_bearing_idxs = [idx for idx in idxs if rows[idx].get('ip', '').strip()]
+        if len(ip_bearing_idxs) == 0:
+            for idx in idxs:
+                stack_extra_issues.setdefault(idx, []).append(
+                    f"Stack group '{sg}' needs exactly one management IP (on the commander/master row) -- none found"
+                )
+        else:
+            stack_ip_bearer[ip_bearing_idxs[0]] = True
+            for idx in ip_bearing_idxs[1:]:
+                stack_extra_warns.setdefault(idx, []).append(
+                    f"Stack group '{sg}' already has a management IP on an earlier row -- this one will be ignored"
+                )
+
     for i, row in enumerate(rows, 1):
         vendor     = normalize_vendor(row.get('vendor', ''))
         role       = normalize_role(row.get('role', ''))
         managed_by = normalize_managed_by(row.get('managed_by', ''))
         platform   = normalize_platform(row.get('platform', ''))
         ip         = row.get('ip', '').strip()
+        stack_group_val = row.get('stack_group', '').strip()
+        is_stack_row    = stack_group_val in stack_groups and len(stack_groups[stack_group_val]) >= 2
         issues, fixes, warns = [], [], []
+        issues.extend(stack_extra_issues.get(i - 1, []))
+        warns.extend(stack_extra_warns.get(i - 1, []))
         status = 'ok'
 
         # Vendor
@@ -643,9 +692,11 @@ def api_validate_csv():
             else:
                 # Duplicate IP check within CSV
                 if ip in seen_ips:
-                    issues.append(f"Duplicate IP — also on row {seen_ips[ip]}")
+                    issues.append(f"Duplicate IP -- also on row {seen_ips[ip]}")
                 else:
                     seen_ips[ip] = i
+        elif is_stack_row and not stack_ip_bearer.get(i - 1, False):
+            pass  # non-master stack member rows don't need their own IP
         else:
             issues.append("IP required")
 
@@ -692,6 +743,8 @@ def api_validate_csv():
             'ip':            ip,
             'managed_by':    managed_by,
             'secrets_group': sg,
+            'stack_group':   stack_group_val,
+            'vc_position':   stack_vc_position.get(i - 1, ''),
             'status':        status,
             'issues':        issues,
             'warnings':      warns,
@@ -711,7 +764,7 @@ def api_validate_csv():
 
 OUTPUT_COLS_READY = [
     'device_name', 'role', 'vendor', 'platform', 'model', 'ip',
-    'managed_by', 'serial', 'status',
+    'managed_by', 'serial', 'status', 'stack_group', 'vc_position',
     'tenant_slug', 'secrets_group', 'namespace',
     'region', 'country', 'state', 'city', 'site_name', 'site_type',
 ]
@@ -739,6 +792,8 @@ def _build_ready_rows(rows, site_config):
             'managed_by':  row.get('managed_by', 'ssh'),
             'serial':      row.get('serial', ''),
             'status':      row.get('status_val', 'Active'),
+            'stack_group': row.get('stack_group', ''),
+            'vc_position': row.get('vc_position', ''),
             'tenant_slug': tenant_slug,
             'secrets_group': row.get('secrets_group', ''),
             'namespace':   tenant_slug,
