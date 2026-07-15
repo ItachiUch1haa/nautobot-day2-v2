@@ -138,12 +138,24 @@ def get_or_create_location(name, type_name, parent_id, status_id, dry_run):
     if not type_id:
         return None, f"FAILED: location type '{type_name}' not in Nautobot"
 
-    # Search by name — verify location_type matches
-    r = client.get('dcim/locations', params={'name': name, 'limit': 50})
+    # Search by name -- verify BOTH location_type AND parent match, since
+    # Nautobot's actual uniqueness constraint is (parent, name) together.
+    # Checking name+type alone can miss a real pre-existing match whenever
+    # two locations share a name+type but sit under different parents,
+    # which then surfaces later as a confusing 400 "must make a unique
+    # set" error at creation time instead of a clean "already exists".
+    params = {'name': name, 'limit': 50}
+    r = client.get('dcim/locations', params=params)
     if r.ok:
         for obj in r.json().get('results', []):
+            obj_parent_id = (obj.get('parent') or {}).get('id')
+            parent_matches = (
+                (parent_id is None and obj_parent_id is None) or
+                (parent_id is not None and obj_parent_id == parent_id)
+            )
             if (obj.get('name') == name and
-                    obj.get('location_type', {}).get('id') == type_id):
+                    obj.get('location_type', {}).get('id') == type_id and
+                    parent_matches):
                 return obj['id'], 'exists'
 
     if dry_run:

@@ -324,7 +324,7 @@ function init() {
       state.vendors = v;
       var box = document.getElementById("newTenantVendors");
       box.innerHTML = v.map(function(vendor) {
-        return "<label><input type=\\"checkbox\\" value=\\"" + vendor.slug + "\\"> " + vendor.label + "</label>";
+        return "<label><input type=\"checkbox\" value=\"" + vendor.slug + "\"> " + vendor.label + "</label>";
       }).join("");
     });
 
@@ -338,7 +338,7 @@ function loadTenants() {
     .then(function(r) { return r.json(); })
     .then(function(tenants) {
       var sel = document.getElementById("tenantSelect");
-      sel.innerHTML = "<option value=\\"\\">Select tenant...</option>";
+      sel.innerHTML = "<option value=\"\">Select tenant...</option>";
       tenants.forEach(function(t) {
         var opt = document.createElement("option");
         opt.value = t.slug;
@@ -368,7 +368,7 @@ function createNewTenant() {
   }
 
   var resultDiv = document.getElementById("newTenantResult");
-  resultDiv.innerHTML = "<div class=\\"alert alert-info\\">Creating tenant...</div>";
+  resultDiv.innerHTML = "<div class=\"alert alert-info\">Creating tenant...</div>";
 
   fetch("/api/vendor-full-selections?vendors=" + checked.join(","))
     .then(function(r) { return r.json(); })
@@ -385,10 +385,10 @@ function createNewTenant() {
     .then(function(r) { return r.json(); })
     .then(function(data) {
       if (data.error) {
-        resultDiv.innerHTML = "<div class=\\"alert alert-error\\">" + data.error + "</div>";
+        resultDiv.innerHTML = "<div class=\"alert alert-error\">" + data.error + "</div>";
         return;
       }
-      resultDiv.innerHTML = "<div class=\\"alert alert-ok\\">Tenant created (" +
+      resultDiv.innerHTML = "<div class=\"alert alert-ok\">Tenant created (" +
         data.created + " created, " + data.skipped + " already existed).</div>";
       loadTenants().then(function() {
         document.getElementById("tenantSelect").value = data.slug;
@@ -397,7 +397,7 @@ function createNewTenant() {
       });
     })
     .catch(function(err) {
-      resultDiv.innerHTML = "<div class=\\"alert alert-error\\">" + err + "</div>";
+      resultDiv.innerHTML = "<div class=\"alert alert-error\">" + err + "</div>";
     });
 }
 
@@ -463,22 +463,22 @@ function addDeviceRow() {
   tr.id  = "row-" + id;
 
   var vOpts = state.vendors.map(function(v) {
-    return "<option value=\\"" + v.slug + "\\">" + v.label + "</option>";
+    return "<option value=\"" + v.slug + "\">" + v.label + "</option>";
   }).join("");
   var rOpts = state.roles.map(function(r) {
-    return "<option value=\\"" + r.name + "\\">" + r.name + "</option>";
+    return "<option value=\"" + r.name + "\">" + r.name + "</option>";
   }).join("");
 
   tr.innerHTML =
-    "<td><input type=\\"text\\" style=\\"width:110px;padding:4px 6px;font-size:12px\\" placeholder=\\"SW-BLR-01\\" id=\\"dn-" + id + "\\"></td>" +
-    "<td><select style=\\"width:130px;padding:4px 6px;font-size:12px\\" id=\\"role-" + id + "\\" onchange=\\"onRoleChange(" + id + ")\\">" + rOpts + "</select></td>" +
-    "<td><select style=\\"width:100px;padding:4px 6px;font-size:12px\\" id=\\"vendor-" + id + "\\" onchange=\\"onVendorChange(" + id + ")\\">" + vOpts + "</select></td>" +
-    "<td><select style=\\"width:120px;padding:4px 6px;font-size:12px\\" id=\\"platform-" + id + "\\"></select></td>" +
-    "<td><input type=\\"text\\" style=\\"width:80px;padding:4px 6px;font-size:12px\\" placeholder=\\"2930F\\" id=\\"model-" + id + "\\"></td>" +
-    "<td><input type=\\"text\\" style=\\"width:110px;padding:4px 6px;font-size:12px\\" placeholder=\\"10.1.1.1/24\\" id=\\"ip-" + id + "\\" oninput=\\"validateIpField(" + id + ")\\"></td>" +
-    "<td><select style=\\"width:110px;padding:4px 6px;font-size:12px\\" id=\\"mb-" + id + "\\"></select></td>" +
-    "<td><input type=\\"text\\" style=\\"width:80px;padding:4px 6px;font-size:12px\\" placeholder=\\"optional\\" id=\\"serial-" + id + "\\"></td>" +
-    "<td><button class=\\"btn btn-danger btn-sm\\" onclick=\\"removeRow(" + id + ")\\">X</button></td>";
+    "<td><input type=\"text\" style=\"width:110px;padding:4px 6px;font-size:12px\" placeholder=\"SW-BLR-01\" id=\"dn-" + id + "\"></td>" +
+    "<td><select style=\"width:130px;padding:4px 6px;font-size:12px\" id=\"role-" + id + "\" onchange=\"onRoleChange(" + id + ")\">" + rOpts + "</select></td>" +
+    "<td><select style=\"width:100px;padding:4px 6px;font-size:12px\" id=\"vendor-" + id + "\" onchange=\"onVendorChange(" + id + ")\">" + vOpts + "</select></td>" +
+    "<td><select style=\"width:120px;padding:4px 6px;font-size:12px\" id=\"platform-" + id + "\"></select></td>" +
+    "<td><input type=\"text\" style=\"width:80px;padding:4px 6px;font-size:12px\" placeholder=\"2930F\" id=\"model-" + id + "\"></td>" +
+    "<td><input type=\"text\" style=\"width:110px;padding:4px 6px;font-size:12px\" placeholder=\"10.1.1.1/24\" id=\"ip-" + id + "\" oninput=\"validateIpField(" + id + ")\"></td>" +
+    "<td><select style=\"width:110px;padding:4px 6px;font-size:12px\" id=\"mb-" + id + "\"></select></td>" +
+    "<td><input type=\"text\" style=\"width:80px;padding:4px 6px;font-size:12px\" placeholder=\"optional\" id=\"serial-" + id + "\"></td>" +
+    "<td><button class=\"btn btn-danger btn-sm\" onclick=\"removeRow(" + id + ")\">X</button></td>";
 
   document.getElementById("deviceRows").appendChild(tr);
   loadPlatforms(id);
@@ -488,17 +488,25 @@ function addDeviceRow() {
 function onVendorChange(id) { loadPlatforms(id); loadManagedBy(id); }
 function onRoleChange(id)   { loadPlatforms(id); loadManagedBy(id); }
 
+// Per-row request generation counters -- guard against a slower, older
+// fetch (e.g. from a vendor you briefly picked before switching again)
+// resolving AFTER a newer one and overwriting the dropdown with stale data.
+var platformReqGen  = {};
+var managedByReqGen = {};
+
 function loadPlatforms(id) {
   var vendor = document.getElementById("vendor-" + id);
   var role   = document.getElementById("role-" + id);
   if (!vendor || !role) return;
+  var myGen = (platformReqGen[id] = (platformReqGen[id] || 0) + 1);
   fetch("/api/vendor-platforms/" + vendor.value + "/" + role.value)
     .then(function(r) { return r.json(); })
     .then(function(platforms) {
+      if (platformReqGen[id] !== myGen) return;
       var sel = document.getElementById("platform-" + id);
       if (!sel) return;
       sel.innerHTML = platforms.map(function(p) {
-        return "<option value=\\"" + p.slug + "\\"" + (p.default ? " selected" : "") + ">" + p.label + "</option>";
+        return "<option value=\"" + p.slug + "\"" + (p.default ? " selected" : "") + ">" + p.label + "</option>";
       }).join("");
     });
 }
@@ -507,13 +515,15 @@ function loadManagedBy(id) {
   var vendor = document.getElementById("vendor-" + id);
   var role   = document.getElementById("role-" + id);
   if (!vendor || !role) return;
+  var myGen = (managedByReqGen[id] = (managedByReqGen[id] || 0) + 1);
   fetch("/api/managed-by/" + vendor.value + "/" + role.value)
     .then(function(r) { return r.json(); })
     .then(function(methods) {
+      if (managedByReqGen[id] !== myGen) return;
       var sel = document.getElementById("mb-" + id);
       if (!sel) return;
       sel.innerHTML = methods.map(function(m) {
-        return "<option value=\\"" + m.value + "\\">" + m.label + "</option>";
+        return "<option value=\"" + m.value + "\">" + m.label + "</option>";
       }).join("");
     });
 }
@@ -609,18 +619,18 @@ function validateDevices() {
 function showValidationResults(rows, summary) {
   var summaryDiv = document.getElementById("validationSummary");
   var okMsg      = summary.errors === 0
-    ? "<div class=\\"alert alert-ok\\">All devices validated. Ready to continue.</div>"
-    : "<div class=\\"alert alert-warn\\">" + summary.errors + " errors found. Fix before continuing.</div>";
+    ? "<div class=\"alert alert-ok\">All devices validated. Ready to continue.</div>"
+    : "<div class=\"alert alert-warn\">" + summary.errors + " errors found. Fix before continuing.</div>";
 
   summaryDiv.innerHTML =
-    "<div class=\\"summary-bar\\">" +
-    "<span class=\\"badge badge-ok\\">OK " + summary.ok + "</span>" +
-    "<span class=\\"badge badge-warn\\">Warnings " + summary.warn + "</span>" +
-    "<span class=\\"badge badge-error\\">Errors " + summary.errors + "</span>" +
-    "<span style=\\"margin-left:auto\\"><strong>" + summary.ready + "/" + summary.total + "</strong> ready</span>" +
+    "<div class=\"summary-bar\">" +
+    "<span class=\"badge badge-ok\">OK " + summary.ok + "</span>" +
+    "<span class=\"badge badge-warn\">Warnings " + summary.warn + "</span>" +
+    "<span class=\"badge badge-error\">Errors " + summary.errors + "</span>" +
+    "<span style=\"margin-left:auto\"><strong>" + summary.ready + "/" + summary.total + "</strong> ready</span>" +
     "</div>" + okMsg;
 
-  var html = "<div id=\\"csvPreview\\"><table class=\\"device-table\\"><thead><tr>" +
+  var html = "<div id=\"csvPreview\"><table class=\"device-table\"><thead><tr>" +
     "<th>#</th><th>Device</th><th>Vendor</th><th>Role</th><th>Platform</th>" +
     "<th>IP</th><th>Managed By</th><th>Secrets Group</th><th>Status</th><th>Notes</th>" +
     "</tr></thead><tbody>";
@@ -636,9 +646,9 @@ function showValidationResults(rows, summary) {
       "<td>" + (r.platform || "") + "</td>" +
       "<td>" + (r.ip || "") + "</td>" +
       "<td>" + (r.managed_by || "") + "</td>" +
-      "<td style=\\"font-size:11px;color:#666\\">" + (r.secrets_group || "") + "</td>" +
-      "<td><span class=\\"badge " + bc + "\\">" + icon + "</span></td>" +
-      "<td class=\\"notes-col\\" title=\\"" + notes.replace(/"/g, "'") + "\\">" + notes + "</td>" +
+      "<td style=\"font-size:11px;color:#666\">" + (r.secrets_group || "") + "</td>" +
+      "<td><span class=\"badge " + bc + "\">" + icon + "</span></td>" +
+      "<td class=\"notes-col\" title=\"" + notes.replace(/"/g, "'") + "\">" + notes + "</td>" +
       "</tr>";
   });
   html += "</tbody></table></div>";
@@ -657,13 +667,13 @@ function goStep4() {
 function loadCredentialRequirements() {
   var slug = state.tenant ? state.tenant.slug : "";
   var div  = document.getElementById("credentialFields");
-  if (!slug) { div.innerHTML = "<div class=\\"alert alert-error\\">No tenant selected</div>"; return; }
+  if (!slug) { div.innerHTML = "<div class=\"alert alert-error\">No tenant selected</div>"; return; }
 
-  div.innerHTML = "<div class=\\"alert alert-info\\">Loading required fields...</div>";
+  div.innerHTML = "<div class=\"alert alert-info\">Loading required fields...</div>";
   fetch("/api/credential-requirements/" + slug)
     .then(function(r) { return r.json(); })
     .then(function(data) {
-      if (data.error) { div.innerHTML = "<div class=\\"alert alert-error\\">" + data.error + "</div>"; return; }
+      if (data.error) { div.innerHTML = "<div class=\"alert alert-error\">" + data.error + "</div>"; return; }
       state.credentialFields = data.fields;
       renderCredentialFields(data.fields);
     });
@@ -672,7 +682,7 @@ function loadCredentialRequirements() {
 function renderCredentialFields(fields) {
   var div = document.getElementById("credentialFields");
   if (fields.length === 0) {
-    div.innerHTML = "<div class=\\"alert alert-ok\\">This tenant needs no credentials yet.</div>";
+    div.innerHTML = "<div class=\"alert alert-ok\">This tenant needs no credentials yet.</div>";
     return;
   }
   var byGroup = {};
@@ -682,13 +692,13 @@ function renderCredentialFields(fields) {
   });
   var html = "";
   Object.keys(byGroup).forEach(function(group) {
-    html += "<div class=\\"cred-group-label\\">" + group + "</div>";
+    html += "<div class=\"cred-group-label\">" + group + "</div>";
     byGroup[group].forEach(function(f) {
       var inputType = f.is_sensitive ? "password" : "text";
-      html += "<div class=\\"cred-field-row\\">" +
-        "<label>" + f.var_name + " <span class=\\"badge badge-muted\\">" + f.secret_type + "</span></label>" +
-        "<input type=\\"" + inputType + "\\" id=\\"cred-" + f.var_name + "\\" placeholder=\\"" +
-        (f.is_sensitive ? "unchanged if left blank" : "") + "\\">" +
+      html += "<div class=\"cred-field-row\">" +
+        "<label>" + f.var_name + " <span class=\"badge badge-muted\">" + f.secret_type + "</span></label>" +
+        "<input type=\"" + inputType + "\" id=\"cred-" + f.var_name + "\" placeholder=\"" +
+        (f.is_sensitive ? "unchanged if left blank" : "") + "\">" +
         "</div>";
     });
   });
@@ -754,10 +764,10 @@ function runCredentialValidation() {
   var div  = document.getElementById("credValidationResults");
   var tests = uniqueTestCombos();
   if (tests.length === 0) {
-    div.innerHTML = "<div class=\\"alert alert-warn\\">No validated devices to test yet &mdash; go back and validate devices first.</div>";
+    div.innerHTML = "<div class=\"alert alert-warn\">No validated devices to test yet &mdash; go back and validate devices first.</div>";
     return;
   }
-  div.innerHTML = "<div class=\\"alert alert-info\\">Running " + tests.length + " test(s)...</div>";
+  div.innerHTML = "<div class=\"alert alert-info\">Running " + tests.length + " test(s)...</div>";
 
   fetch("/api/validate-credentials", {
     method:  "POST",
@@ -766,7 +776,7 @@ function runCredentialValidation() {
   })
   .then(function(r) { return r.json(); })
   .then(function(data) {
-    if (data.error) { div.innerHTML = "<div class=\\"alert alert-error\\">" + data.error + "</div>"; return; }
+    if (data.error) { div.innerHTML = "<div class=\"alert alert-error\">" + data.error + "</div>"; return; }
     renderCredValidationResults(data.results);
   });
 }
@@ -782,7 +792,7 @@ function renderCredValidationResults(results) {
     inherited:       "badge-muted",
     skip:            "badge-muted"
   };
-  var html = "<table class=\\"device-table\\"><thead><tr>" +
+  var html = "<table class=\"device-table\"><thead><tr>" +
     "<th>Vendor</th><th>Role</th><th>Access Method</th><th>Result</th><th>Message</th>" +
     "</tr></thead><tbody>";
   results.forEach(function(r) {
@@ -793,8 +803,8 @@ function renderCredValidationResults(results) {
       "<td>" + (r.vendor || "") + "</td>" +
       "<td>" + (r.role || "") + "</td>" +
       "<td>" + (r.access_method || "") + "</td>" +
-      "<td><span class=\\"badge " + bc + "\\">" + status + "</span></td>" +
-      "<td style=\\"font-size:12px\\">" + msg + "</td>" +
+      "<td><span class=\"badge " + bc + "\">" + status + "</span></td>" +
+      "<td style=\"font-size:12px\">" + msg + "</td>" +
       "</tr>";
   });
   html += "</tbody></table>";
@@ -810,7 +820,7 @@ function deploySite() {
   if (validRows.length === 0) { alert("No valid devices to deploy"); return; }
 
   var div = document.getElementById("deployResult");
-  div.innerHTML = "<div class=\\"alert alert-info\\">Deploying " + validRows.length + " device(s) and triggering sync...</div>";
+  div.innerHTML = "<div class=\"alert alert-info\">Deploying " + validRows.length + " device(s) and triggering sync...</div>";
 
   fetch("/api/deploy", {
     method:  "POST",
@@ -822,21 +832,21 @@ function deploySite() {
   })
   .then(function(r) { return r.json(); })
   .then(function(data) {
-    if (data.error) { div.innerHTML = "<div class=\\"alert alert-error\\">" + data.error + "</div>"; return; }
+    if (data.error) { div.innerHTML = "<div class=\"alert alert-error\">" + data.error + "</div>"; return; }
 
     var onboard = data.onboard || {};
     var sync    = data.sync;
-    var html = "<div class=\\"alert " + (onboard.failed ? "alert-warn" : "alert-ok") + "\\">" +
+    var html = "<div class=\"alert " + (onboard.failed ? "alert-warn" : "alert-ok") + "\">" +
       "<strong>Onboarding:</strong> " + onboard.ok + " created, " + onboard.failed + " failed, " +
       onboard.total + " total.</div>";
 
     if (sync) {
       if (sync.triggered) {
-        html += "<div class=\\"alert alert-ok\\">Sync job triggered &mdash; status: " +
+        html += "<div class=\"alert alert-ok\">Sync job triggered &mdash; status: " +
           (sync.job_result && sync.job_result.job_result ? sync.job_result.job_result.status.label : "PENDING") +
           "</div>";
       } else {
-        html += "<div class=\\"alert alert-warn\\">Sync not triggered: " + (sync.error || "unknown reason") + "</div>";
+        html += "<div class=\"alert alert-warn\">Sync not triggered: " + (sync.error || "unknown reason") + "</div>";
       }
     }
     div.innerHTML = html;
@@ -855,14 +865,14 @@ function generateReadyCsv() {
     if (data.error) { alert(data.error); return; }
     var siteSlug = state.siteConfig.site_name.toLowerCase().replace(/ /g, "-");
     document.getElementById("generateResult").innerHTML =
-      "<div class=\\"alert alert-ok\\">" +
+      "<div class=\"alert alert-ok\">" +
       "<strong>nautobot_ready CSV generated</strong><br>" +
       "File: <code>" + data.filename + "</code><br>" +
       "Devices: " + data.count + "<br>" +
       "Manifest: " + data.manifest +
       "</div>" +
-      "<div class=\\"actions\\" style=\\"margin-top:12px\\">" +
-      "<a href=\\"/api/download-ready-csv/" + siteSlug + "\\" class=\\"btn btn-primary\\">Download " + data.filename + "</a>" +
+      "<div class=\"actions\" style=\"margin-top:12px\">" +
+      "<a href=\"/api/download-ready-csv/" + siteSlug + "\" class=\"btn btn-primary\">Download " + data.filename + "</a>" +
       "</div>";
   });
 }

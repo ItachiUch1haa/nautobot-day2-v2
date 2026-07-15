@@ -25,7 +25,6 @@ from flask import (
 )
 
 LAB_DIR       = os.path.dirname(os.path.abspath(__file__))
-PROFILES_DIR  = os.path.join(LAB_DIR, 'profiles')
 MANIFESTS_DIR = os.path.join(LAB_DIR, 'manifests')
 
 sys.path.insert(0, LAB_DIR)
@@ -34,6 +33,14 @@ from client import NautobotClient, NautobotAPIError
 
 client = NautobotClient(env_file=os.path.join(LAB_DIR, '.env'))
 URL = client.url
+
+# Tenant profile JSONs live in the SAME persisted location as tenant .env
+# files (create_tenant.py's LAB_PROFILES_DIR, honoring NAUTOBOT_DAY2_TENANTS_DIR)
+# -- not a separate ephemeral 'profiles/' folder inside the container's
+# writable layer, which would silently lose every tenant created through
+# this UI on the next rebuild.
+from create_tenant import LAB_PROFILES_DIR
+PROFILES_DIR = LAB_PROFILES_DIR
 
 from vendor_matrix import (
     VENDOR_MATRIX,
