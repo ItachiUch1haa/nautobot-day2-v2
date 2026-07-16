@@ -199,7 +199,7 @@ select:focus, input:focus { outline: none; border-color: #1B3A6B; }
           <tr>
             <th>Device Name</th><th>Role</th><th>Vendor</th>
             <th>Platform</th><th>Model</th><th>IP / Prefix</th>
-            <th>Managed By</th><th>Serial</th><th></th>
+            <th>Managed By</th><th>Serial</th><th>Stack</th><th></th>
           </tr>
         </thead>
         <tbody id="deviceRows"></tbody>
@@ -478,11 +478,25 @@ function addDeviceRow() {
     "<td><input type=\"text\" style=\"width:110px;padding:4px 6px;font-size:12px\" placeholder=\"10.1.1.1/24\" id=\"ip-" + id + "\" oninput=\"validateIpField(" + id + ")\"></td>" +
     "<td><select style=\"width:110px;padding:4px 6px;font-size:12px\" id=\"mb-" + id + "\"></select></td>" +
     "<td><input type=\"text\" style=\"width:80px;padding:4px 6px;font-size:12px\" placeholder=\"optional\" id=\"serial-" + id + "\"></td>" +
+    "<td>" +
+      "<label style=\"display:flex;align-items:center;gap:4px;font-weight:400;font-size:11px\">" +
+        "<input type=\"checkbox\" id=\"stackChk-" + id + "\" onchange=\"toggleStackInput(" + id + ")\"> Stack" +
+      "</label>" +
+      "<input type=\"text\" id=\"stackGrp-" + id + "\" placeholder=\"group name\" style=\"display:none;width:80px;padding:4px 6px;font-size:12px;margin-top:4px\">" +
+    "</td>" +
     "<td><button class=\"btn btn-danger btn-sm\" onclick=\"removeRow(" + id + ")\">X</button></td>";
 
   document.getElementById("deviceRows").appendChild(tr);
   loadPlatforms(id);
   loadManagedBy(id);
+}
+
+function toggleStackInput(id) {
+  var chk = document.getElementById("stackChk-" + id);
+  var inp = document.getElementById("stackGrp-" + id);
+  if (!chk || !inp) return;
+  inp.style.display = chk.checked ? "block" : "none";
+  if (!chk.checked) inp.value = "";
 }
 
 function onVendorChange(id) { loadPlatforms(id); loadManagedBy(id); }
@@ -563,6 +577,11 @@ function collectDevices() {
       ip:          (document.getElementById("ip-" + id) || {value:""}).value.trim(),
       managed_by:  (document.getElementById("mb-" + id) || {value:"ssh"}).value || "ssh",
       serial:      (document.getElementById("serial-" + id) || {value:""}).value.trim(),
+      stack_group: (function() {
+        var chk = document.getElementById("stackChk-" + id);
+        var inp = document.getElementById("stackGrp-" + id);
+        return (chk && chk.checked && inp) ? inp.value.trim() : "";
+      })(),
       tenant_slug: state.tenant ? state.tenant.slug : ""
     });
   });
@@ -585,34 +604,17 @@ function handleCsvUpload(event) {
 }
 
 function validateDevices() {
-  var results  = [];
-  var promises = state.devices.map(function(dev) {
-    return fetch("/api/validate-row", {
-      method:  "POST",
-      headers: {"Content-Type": "application/json"},
-      body:    JSON.stringify(dev)
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-      results.push(Object.assign({}, dev, data, {
-        vendor:     data.vendor_norm     || dev.vendor,
-        role:       data.role_norm       || dev.role,
-        managed_by: data.managed_by_norm || dev.managed_by,
-        platform:   data.platform        || dev.platform
-      }));
-    });
-  });
-
-  Promise.all(promises).then(function() {
-    state.validationRows = results;
-    var summary = {
-      total:  results.length,
-      ok:     results.filter(function(r) { return r.status === "ok"; }).length,
-      warn:   results.filter(function(r) { return r.status === "warn"; }).length,
-      errors: results.filter(function(r) { return r.status === "error"; }).length,
-      ready:  results.filter(function(r) { return r.status !== "error"; }).length
-    };
-    showValidationResults(results, summary);
+  var slug = state.tenant ? state.tenant.slug : "";
+  fetch("/api/validate-rows", {
+    method:  "POST",
+    headers: {"Content-Type": "application/json"},
+    body:    JSON.stringify({ rows: state.devices, tenant_slug: slug })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.error) { alert(data.error); return; }
+    state.validationRows = data.rows;
+    showValidationResults(data.rows, data.summary);
   });
 }
 
