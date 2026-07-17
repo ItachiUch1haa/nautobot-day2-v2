@@ -574,11 +574,19 @@ def _aruba_central_get_token(creds, tenant_slug=''):
         os.environ[env_key] = new_refresh
         creds['refresh_token'] = new_refresh
 
-        # Update env file on disk
-        env_paths = [
-            f'{LAB_DIR}/profiles/{tenant_slug}.env',
-            f'/etc/nautobot/tenants/{tenant_slug}.env',
-        ]
+        # Update env file on disk. Prefer the real persisted location
+        # (Django's PLUGINS_CONFIG, honoring NAUTOBOT_DAY2_TENANTS_DIR)
+        # over the old bare-metal-era paths, which don't exist in the
+        # Docker deployment and would silently swallow this write.
+        try:
+            from django.conf import settings
+            tenants_dir = settings.PLUGINS_CONFIG.get("nautobot_day2", {}).get("tenants_dir")
+        except Exception:
+            tenants_dir = None
+        env_paths = []
+        if tenants_dir:
+            env_paths.append(f'{tenants_dir}/{tenant_slug}.env')
+        env_paths.append(f'{LAB_DIR}/profiles/{tenant_slug}.env')
         for env_path in env_paths:
             if not os.path.exists(env_path):
                 continue
@@ -1507,9 +1515,10 @@ def sync_device(device, dry_run):
         missing = [v for k, v in creds.get('_var_map', {}).items()
                    if not creds.get(k)]
         if missing:
+            _tenants_dir = os.environ.get("NAUTOBOT_DAY2_TENANTS_DIR", f'{LAB_DIR}/profiles')
             result.fail(ERR_AUTH,
                         f'Missing env vars: {missing}',
-                        f'Fill {missing} in {LAB_DIR}/profiles/{tenant_slug}.env')
+                        f'Fill {missing} in {_tenants_dir}/{tenant_slug}.env')
             return result
 
     # Fetch data

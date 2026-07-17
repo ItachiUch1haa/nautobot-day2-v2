@@ -32,7 +32,7 @@ VENDOR_COMMANDS_PATH = os.environ.get(
 
 MANIFESTS_DIR = os.path.join(SCRIPT_DIR, 'manifests')
 PROFILES_DIR = os.path.join(SCRIPT_DIR, 'profiles')
-TENANTS_DIR = '/etc/nautobot/tenants'
+TENANTS_DIR = os.environ.get("NAUTOBOT_DAY2_TENANTS_DIR", '/etc/nautobot/tenants')
 
 REQUIRED_SCRIPTS = [
     'bootstrap_nautobot.py',
