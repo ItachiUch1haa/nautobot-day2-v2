@@ -483,7 +483,7 @@ def api_validate_credentials():
             test_result = test_mist(
                 token=values.get('MIST_API_TOKEN', ''),
                 org_id=values.get('MIST_ORG_ID', ''),
-                base_url='https://api.mist.com',
+                base_url=values.get('MIST_BASE_URL', '') or 'https://api.mist.com',
             )
 
         elif access_method == 'aruba-central':

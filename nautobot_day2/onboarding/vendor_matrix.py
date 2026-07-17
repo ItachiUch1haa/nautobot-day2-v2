@@ -128,7 +128,7 @@ VENDOR_MATRIX = {
                         "enabled": True,
                         "label": "Mist Cloud API",
                         "secrets_group_prefix": "juniper-mist-api",
-                        "env_vars": ["MIST_API_TOKEN", "MIST_ORG_ID"],
+                        "env_vars": ["MIST_API_TOKEN", "MIST_ORG_ID", "MIST_BASE_URL"],
                         "external_integration": "Mist Cloud",
                         "sync_handler": "juniper_mist_switch_api"
                     },
@@ -157,7 +157,7 @@ VENDOR_MATRIX = {
                         "enabled": True,
                         "label": "Mist Cloud API",
                         "secrets_group_prefix": "juniper-mist-api",
-                        "env_vars": ["MIST_API_TOKEN", "MIST_ORG_ID"],
+                        "env_vars": ["MIST_API_TOKEN", "MIST_ORG_ID", "MIST_BASE_URL"],
                         "external_integration": "Mist Cloud",
                         "sync_handler": "juniper_mist_api"
                     }
@@ -180,7 +180,7 @@ VENDOR_MATRIX = {
                         "enabled": True,
                         "label": "Mist Cloud API",
                         "secrets_group_prefix": "juniper-mist-api",
-                        "env_vars": ["MIST_API_TOKEN", "MIST_ORG_ID"],
+                        "env_vars": ["MIST_API_TOKEN", "MIST_ORG_ID", "MIST_BASE_URL"],
                         "external_integration": "Mist Cloud",
                         "sync_handler": "juniper_mist_firewall_api"
                     },
