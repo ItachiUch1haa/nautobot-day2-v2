@@ -65,9 +65,10 @@ def _load_tenant_env(tenant_slug):
     env_path = os.path.join(tenants_dir, f"{tenant_slug}.env")
     if not os.path.isfile(env_path):
         logger.warning("Tenant env file not found for '%s' at %s", tenant_slug, env_path)
-        return
+        return None
 
     load_dotenv(env_path, override=True)
+    return env_path
 
 
 @nautobot_task(

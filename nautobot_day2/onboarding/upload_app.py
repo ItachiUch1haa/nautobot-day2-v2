@@ -417,7 +417,12 @@ def api_validate_credentials():
         vendor        = t.get('vendor', '')
         role          = t.get('role', '')
         access_method = t.get('access_method', '')
-        ip            = t.get('ip', '')
+        # Strip any CIDR suffix (e.g. "172.33.1.1/24" -> "172.33.1.1") --
+        # device IPs are stored with a prefix for Nautobot's IP/Prefix
+        # objects, but SSH connections need a bare address. Without this,
+        # netmiko/paramiko tries to resolve "x.x.x.x/24" as a hostname and
+        # fails with a DNS-style error instead of a real connection attempt.
+        ip            = t.get('ip', '').split('/')[0]
 
         dtype = vendor_to_device_type(vendor, role)
         if not dtype:
@@ -739,6 +744,8 @@ def _validate_rows(rows, tenant_slug):
             'vendor':        vendor or row.get('vendor', ''),
             'role':          role or row.get('role', ''),
             'platform':      platform,
+            'model':         row.get('model', ''),
+            'serial':        row.get('serial', ''),
             'ip':            ip,
             'managed_by':    managed_by,
             'secrets_group': sg,
