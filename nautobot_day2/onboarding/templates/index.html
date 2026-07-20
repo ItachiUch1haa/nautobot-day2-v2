@@ -199,7 +199,7 @@ select:focus, input:focus { outline: none; border-color: #1B3A6B; }
           <tr>
             <th>Device Name</th><th>Role</th><th>Vendor</th>
             <th>Platform</th><th>Model</th><th>IP / Prefix</th>
-            <th>Managed By</th><th>Serial</th><th>Stack</th><th></th>
+            <th>Managed By</th><th>Serial</th><th>Stack</th><th>HA</th><th></th>
           </tr>
         </thead>
         <tbody id="deviceRows"></tbody>
@@ -484,6 +484,12 @@ function addDeviceRow() {
       "</label>" +
       "<input type=\"text\" id=\"stackGrp-" + id + "\" placeholder=\"group name\" style=\"display:none;width:80px;padding:4px 6px;font-size:12px;margin-top:4px\">" +
     "</td>" +
+    "<td>" +
+      "<label style=\"display:flex;align-items:center;gap:4px;font-weight:400;font-size:11px\">" +
+        "<input type=\"checkbox\" id=\"haChk-" + id + "\" onchange=\"toggleHAInput(" + id + ")\"> HA" +
+      "</label>" +
+      "<input type=\"text\" id=\"haGrp-" + id + "\" placeholder=\"group name\" style=\"display:none;width:80px;padding:4px 6px;font-size:12px;margin-top:4px\">" +
+    "</td>" +
     "<td><button class=\"btn btn-danger btn-sm\" onclick=\"removeRow(" + id + ")\">X</button></td>";
 
   document.getElementById("deviceRows").appendChild(tr);
@@ -494,6 +500,14 @@ function addDeviceRow() {
 function toggleStackInput(id) {
   var chk = document.getElementById("stackChk-" + id);
   var inp = document.getElementById("stackGrp-" + id);
+  if (!chk || !inp) return;
+  inp.style.display = chk.checked ? "block" : "none";
+  if (!chk.checked) inp.value = "";
+}
+
+function toggleHAInput(id) {
+  var chk = document.getElementById("haChk-" + id);
+  var inp = document.getElementById("haGrp-" + id);
   if (!chk || !inp) return;
   inp.style.display = chk.checked ? "block" : "none";
   if (!chk.checked) inp.value = "";
@@ -582,6 +596,12 @@ function collectDevices() {
         var inp = document.getElementById("stackGrp-" + id);
         return (chk && chk.checked && inp) ? inp.value.trim() : "";
       })(),
+      ha_group: (function() {
+        var chk = document.getElementById("haChk-" + id);
+        var inp = document.getElementById("haGrp-" + id);
+        return (chk && chk.checked && inp) ? inp.value.trim() : "";
+      })(),
+      site:        state.siteConfig ? state.siteConfig.site_name : "",
       tenant_slug: state.tenant ? state.tenant.slug : ""
     });
   });
