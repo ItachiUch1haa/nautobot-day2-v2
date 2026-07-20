@@ -309,6 +309,23 @@ def api_credential_requirements(slug):
     return jsonify({'slug': slug, 'fields': fields})
 
 
+def _find_external_integration_label(base_var_name):
+    """
+    Given a base env var name (no tenant suffix), find the
+    'external_integration' label declared for it in VENDOR_MATRIX, if
+    any. Used to know which External Integration's remote_url to patch
+    when a *_BASE_URL credential gets saved.
+    """
+    for vendor_data in VENDOR_MATRIX.values():
+        for dt_data in vendor_data['device_types'].values():
+            for method_data in dt_data['access_methods'].values():
+                if base_var_name in method_data.get('env_vars', []):
+                    label = method_data.get('external_integration')
+                    if label:
+                        return label
+    return None
+
+
 @app.route('/api/save-credentials', methods=['POST'])
 def api_save_credentials():
     """
@@ -372,10 +389,43 @@ def api_save_credentials():
 
     not_found = [v for v in credentials if v not in updated]
 
+    # If any saved value is a controller/API base URL, push it onto the
+    # matching External Integration's remote_url too -- eliminates the
+    # manual "go fix the placeholder URL in Nautobot's UI" step that
+    # create_tenant.py's External Integration creation otherwise leaves
+    # behind (it creates the integration with a hardcoded placeholder,
+    # since the real URL isn't known until credentials are entered here).
+    suffix = slug.upper().replace('-', '_')
+    integration_updates = []
+    for var_name in updated:
+        if not var_name.endswith(f"_{suffix}"):
+            continue
+        base_var = var_name[:-len(f"_{suffix}")]
+        if not base_var.endswith('_BASE_URL'):
+            continue
+        int_label = _find_external_integration_label(base_var)
+        if not int_label:
+            continue
+        full_int_name = f"{int_label} - {slug}"
+        r = client.get('extras/external-integrations', params={'name': full_int_name, 'limit': 1})
+        results_list = r.json().get('results', []) if r.ok else []
+        if not results_list:
+            integration_updates.append({'integration': full_int_name, 'status': 'not_found'})
+            continue
+        int_id = results_list[0]['id']
+        patch_r = client.patch(f'extras/external-integrations/{int_id}', {
+            'remote_url': credentials[var_name]
+        })
+        integration_updates.append({
+            'integration': full_int_name,
+            'status': 'updated' if patch_r.status_code == 200 else f'FAILED {patch_r.status_code}'
+        })
+
     return jsonify({
         'slug': slug,
         'updated': updated,
         'not_found_in_file': not_found,
+        'integration_updates': integration_updates,
     })
 
 
