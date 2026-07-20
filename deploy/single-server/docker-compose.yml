@@ -130,7 +130,34 @@ services:
       start_period: 20s
     restart: unless-stopped
 
+  openbao:
+    image: openbao/openbao:latest
+    cap_add:
+      - IPC_LOCK
+    environment:
+      BAO_DEV_LISTEN_ADDRESS: "127.0.0.1:8250"
+      BAO_LOCAL_CONFIG: |
+        storage "file" {
+          path = "/openbao/data"
+        }
+        listener "tcp" {
+          address = "0.0.0.0:8200"
+          tls_disable = true
+        }
+        disable_mlock = true
+    ports:
+      - "8200:8200"
+    volumes:
+      - openbao_data:/openbao/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://127.0.0.1:8200/v1/sys/health?standbyok=true&sealedcode=200"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
 volumes:
   postgres_data:
   nautobot_media:
   tenants_data:
+  openbao_data:
