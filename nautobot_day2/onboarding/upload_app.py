@@ -651,6 +651,36 @@ def _validate_rows(rows, tenant_slug):
                     f"Stack group '{sg}' already has a management IP on an earlier row -- this one will be ignored"
                 )
 
+    # Pre-pass: group rows into HA (redundancy) pairs by ha_group. Unlike
+    # a stack, every member here keeps its OWN management IP -- each unit
+    # in a firewall HA pair is independently reachable, not one shared
+    # control plane. ha_priority is taken from an explicit column if
+    # present (lower number = higher priority), otherwise auto-assigned by
+    # row order. Cross-vendor HA pairs aren't supported, same as stacks.
+    ha_groups = {}
+    for idx, row in enumerate(rows):
+        hg = row.get('ha_group', '').strip()
+        if hg:
+            ha_groups.setdefault(hg, []).append(idx)
+
+    ha_priority        = {}
+    ha_extra_issues    = {}
+
+    for hg, idxs in ha_groups.items():
+        if len(idxs) < 2:
+            continue  # a lone row with an ha_group isn't really an HA pair
+
+        vendors_in_group = set(normalize_vendor(rows[idx].get('vendor', '')) for idx in idxs)
+        if len(vendors_in_group) > 1:
+            for idx in idxs:
+                ha_extra_issues.setdefault(idx, []).append(
+                    f"HA group '{hg}' has mixed vendors ({', '.join(sorted(vendors_in_group))}) -- not supported"
+                )
+
+        for pos, idx in enumerate(idxs, 1):
+            explicit_pri = rows[idx].get('ha_priority', '').strip()
+            ha_priority[idx] = explicit_pri if explicit_pri else str(pos)
+
     for i, row in enumerate(rows, 1):
         vendor     = normalize_vendor(row.get('vendor', ''))
         role       = normalize_role(row.get('role', ''))
@@ -659,9 +689,11 @@ def _validate_rows(rows, tenant_slug):
         ip         = row.get('ip', '').strip()
         stack_group_val = row.get('stack_group', '').strip()
         is_stack_row    = stack_group_val in stack_groups and len(stack_groups[stack_group_val]) >= 2
+        ha_group_val    = row.get('ha_group', '').strip()
         issues, fixes, warns = [], [], []
         issues.extend(stack_extra_issues.get(i - 1, []))
         warns.extend(stack_extra_warns.get(i - 1, []))
+        issues.extend(ha_extra_issues.get(i - 1, []))
         status = 'ok'
 
         # Vendor
@@ -751,6 +783,8 @@ def _validate_rows(rows, tenant_slug):
             'secrets_group': sg,
             'stack_group':   stack_group_val,
             'vc_position':   stack_vc_position.get(i - 1, ''),
+            'ha_group':      ha_group_val,
+            'ha_priority':   ha_priority.get(i - 1, ''),
             'status':        status,
             'issues':        issues,
             'warnings':      warns,
@@ -809,6 +843,7 @@ def api_validate_rows():
 OUTPUT_COLS_READY = [
     'device_name', 'role', 'vendor', 'platform', 'model', 'ip',
     'managed_by', 'serial', 'status', 'stack_group', 'vc_position',
+    'ha_group', 'ha_priority',
     'tenant_slug', 'secrets_group', 'namespace',
     'region', 'country', 'state', 'city', 'site_name', 'site_type',
 ]
@@ -838,6 +873,8 @@ def _build_ready_rows(rows, site_config):
             'status':      row.get('status_val', 'Active'),
             'stack_group': row.get('stack_group', ''),
             'vc_position': row.get('vc_position', ''),
+            'ha_group':    row.get('ha_group', ''),
+            'ha_priority': row.get('ha_priority', ''),
             'tenant_slug': tenant_slug,
             'secrets_group': row.get('secrets_group', ''),
             'namespace':   tenant_slug,

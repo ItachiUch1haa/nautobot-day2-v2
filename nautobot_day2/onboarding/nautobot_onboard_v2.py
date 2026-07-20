@@ -380,11 +380,49 @@ def get_or_create_virtual_chassis(name, dry_run, vc_cache):
     return None, f"FAILED {r.status_code}: {r.text[:100]}"
 
 
+def get_or_create_device_redundancy_group(name, status_id, dry_run, drg_cache):
+    """
+    Find or create a DeviceRedundancyGroup by name. Represents a real
+    firewall HA pair -- each member keeps its own separate identity and
+    management IP (unlike VirtualChassis, which is one logical device
+    made of physically shared-control-plane members).
+    """
+    if name in drg_cache:
+        return drg_cache[name], 'cached'
+
+    r = client.get('dcim/device-redundancy-groups', params={'name': name, 'limit': 10})
+    if r.ok:
+        for obj in r.json().get('results', []):
+            if obj.get('name') == name:
+                drg_cache[name] = obj['id']
+                return obj['id'], 'exists'
+
+    if dry_run:
+        drg_cache[name] = f'DRY:{name}'
+        return f'DRY:{name}', 'would create'
+
+    r = api_post('dcim/device-redundancy-groups', {
+        "name": name,
+        "status": {"id": status_id},
+        "failover_strategy": "active-passive"
+    })
+    if r.status_code == 201:
+        new_id = r.json()['id']
+        drg_cache[name] = new_id
+        return new_id, 'created'
+    return None, f"FAILED {r.status_code}: {r.text[:100]}"
+
+
 def get_or_create_device(row, site_id, dt_id, role_id, platform_id,
                           tenant_id, status_id, sg_id, dry_run,
-                          vc_id=None, vc_position=None):
+                          vc_id=None, vc_position=None,
+                          drg_id=None, drg_priority=None):
     """Find or create a device. If vc_id is given, links this device
-    into that VirtualChassis at vc_position (a real stack member)."""
+    into that VirtualChassis at vc_position (a real stack member). If
+    drg_id is given, links this device into that DeviceRedundancyGroup
+    at drg_priority (a real HA pair member) -- a device can be part of a
+    stack OR an HA pair, never both, since these represent genuinely
+    different physical architectures."""
     # Check if already exists
     r = client.get('dcim/devices', params={'name': row['device_name'], 'limit': 10})
     if r.ok:
@@ -418,6 +456,10 @@ def get_or_create_device(row, site_id, dt_id, role_id, platform_id,
         payload["virtual_chassis"] = {"id": vc_id}
         if vc_position:
             payload["vc_position"] = int(vc_position)
+    if drg_id and not str(drg_id).startswith('DRY:'):
+        payload["device_redundancy_group"] = {"id": drg_id}
+        if drg_priority:
+            payload["device_redundancy_group_priority"] = int(drg_priority)
 
     r = api_post('dcim/devices', payload)
     if r.status_code == 201:
@@ -631,6 +673,29 @@ def process_csv(rows, dry_run):
             print(f"  + virtual chassis: {vc_name} ({vc_msg})")
         vc_lookup[(site_key, sg)] = vc_id
 
+    # Pre-pass: create one DeviceRedundancyGroup per (site, ha_group) group
+    # present in this batch -- a real firewall HA pair. Unlike a stack,
+    # every member here keeps its own IP, so this only affects which
+    # redundancy group + priority get attached to each device below.
+    drg_cache = {}
+    drg_lookup = {}
+    ha_rows = {}
+    for row in rows:
+        hg = row.get('ha_group', '').strip()
+        if not hg:
+            continue
+        site_key = f"{row['region']}|{row['country']}|{row['state']}|{row['city']}|{row['site_name']}"
+        ha_rows.setdefault((site_key, hg), []).append(row)
+
+    for (site_key, hg), members in ha_rows.items():
+        if len(members) < 2:
+            continue
+        drg_name = f"{members[0]['site_name']}-{hg}"
+        drg_id, drg_msg = get_or_create_device_redundancy_group(drg_name, active_id, dry_run, drg_cache)
+        if drg_msg in ('created', 'would create'):
+            print(f"  + device redundancy group: {drg_name} ({drg_msg})")
+        drg_lookup[(site_key, hg)] = drg_id
+
     for i, row in enumerate(rows, 1):
         name = row['device_name']
         ok   = True
@@ -692,6 +757,13 @@ def process_csv(rows, dry_run):
         if sg_stack:
             vc_id = vc_lookup.get((site_key, sg_stack))
 
+        # ── HA membership (DeviceRedundancyGroup) ───────────────────
+        hg_ha       = row.get('ha_group', '').strip()
+        drg_id      = None
+        drg_priority = row.get('ha_priority', '').strip() or None
+        if hg_ha:
+            drg_id = drg_lookup.get((site_key, hg_ha))
+
         # ── Prefix ────────────────────────────────────────────────
         # Skipped for stack member rows with no IP of their own -- the
         # whole stack is reached through the master's IP, so there's
@@ -717,7 +789,8 @@ def process_csv(rows, dry_run):
         dev_id, dev_msg = get_or_create_device(
             row, site_id, dt_id, role_id, plat_id,
             tenant_id, active_id, sg_id, dry_run,
-            vc_id=vc_id, vc_position=vc_position)
+            vc_id=vc_id, vc_position=vc_position,
+            drg_id=drg_id, drg_priority=drg_priority)
         if dev_msg.startswith('FAILED'):
             print(f"         ! FAIL device: {dev_msg}")
             results.append([name, 'FAILED', dev_msg])
