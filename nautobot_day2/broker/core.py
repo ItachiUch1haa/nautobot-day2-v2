@@ -52,11 +52,19 @@ def get_device_context(device_name):
             sg_name = sg_resp.json().get("name")
 
     platform_name = None
+    platform_slug = None
     platform = device.get("platform") or {}
     if platform:
         plat_resp = client.get_absolute(platform["url"])
         if plat_resp.ok:
-            platform_name = plat_resp.json().get("name")
+            plat_data = plat_resp.json()
+            platform_name = plat_data.get("name")
+            ns = plat_data.get("natural_slug", "")
+            # Same derivation as sync_network_data.py: strip trailing
+            # 4-char hash suffix from natural_slug (e.g. "fortios_9d1d"
+            # -> "fortios"). The display `name` field is NOT reliable
+            # for this (e.g. "ArubaOS AP" vs the real slug "arubaos-ap").
+            platform_slug = ns.rsplit("_", 1)[0] if "_" in ns and len(ns.rsplit("_", 1)[-1]) == 4 else ns
 
     role_name = None
     role = device.get("role") or {}
@@ -72,6 +80,7 @@ def get_device_context(device_name):
         "ip_address": ip_address,
         "secrets_group": sg_name,
         "platform": platform_name,
+        "platform_slug": platform_slug,
         "role": role_name,
         "device_id": device["id"],
     }
@@ -115,7 +124,7 @@ def run_diagnostic_command(device_name, command):
     if not ctx.get("ip_address"):
         raise Exception(f"NO_IP: '{device_name}' has no primary IP set in Nautobot")
 
-    platform_slug = (ctx.get("platform") or "").lower()
+    platform_slug = ctx.get("platform_slug") or ""
     role_name = ctx.get("role") or ""
     sg_name = ctx.get("secrets_group") or ""
 
