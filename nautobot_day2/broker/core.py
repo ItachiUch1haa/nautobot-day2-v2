@@ -151,19 +151,47 @@ def run_diagnostic_command(device_name, command):
     if not username or not password:
         raise Exception(f"CREDENTIAL_INCOMPLETE: could not find username/password keys in fetched secret for '{device_name}' (keys present: {list(creds.keys())})")
 
-    from netmiko import ConnectHandler
+    from nornir.core import Nornir
+    from nornir.core.inventory import Inventory, Host
+    from nornir.plugins.runners import ThreadedRunner
+    from nornir.core.plugins.connections import ConnectionPluginRegister
+    from nornir_netmiko.tasks import netmiko_send_command
 
-    device_conn = {
-        "device_type": netmiko_device_type,
-        "host": ctx["ip_address"],
-        "username": username,
-        "password": password,
-        "timeout": 30,
-        "auth_timeout": 30,
-    }
+    # Connection plugins (netmiko, napalm, etc.) are normally auto-
+    # discovered by InitNornir() via entry points. Since we build the
+    # Nornir object directly (no config files, per-request in-memory
+    # inventory), that discovery never runs unless triggered explicitly.
+    # auto_register() is idempotent -- safe to call on every request.
+    ConnectionPluginRegister.auto_register()
 
-    conn = ConnectHandler(**device_conn)
-    output = conn.send_command_timing(command, delay_factor=2, strip_prompt=True, strip_command=True)
-    conn.disconnect()
+    host = Host(
+        name=device_name,
+        hostname=ctx["ip_address"],
+        username=username,
+        password=password,
+        platform=netmiko_device_type,
+    )
+    inv = Inventory(hosts={device_name: host})
+    # Single device per request -> 1 worker is correct; ThreadedRunner
+    # is Nornir's default but must be registered explicitly since we
+    # build the Nornir object directly rather than via InitNornir().
+    nr = Nornir(inventory=inv, runner=ThreadedRunner(num_workers=1))
 
-    return output
+    result = nr.run(
+        task=netmiko_send_command,
+        command_string=command,
+        use_timing=True,
+        delay_factor=2,
+        strip_prompt=True,
+        strip_command=True,
+    )
+
+    host_result = result[device_name]
+    # NOTE: MultiResult.failed aggregates every subtask attempt including
+    # retried-and-recovered ones -- check the top-level task result
+    # (index 0) specifically, per this project's own documented Nornir
+    # lesson, not the aggregate .failed property.
+    if host_result[0].failed:
+        raise Exception(f"NORNIR_DISPATCH_FAILED: {host_result[0].exception}")
+
+    return host_result[0].result
