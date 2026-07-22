@@ -92,6 +92,7 @@ PLATFORM_MAP = {
     'juniper-mist':       ('access_points', 'juniper_mist_ap'),
     'fortios':            ('firewalls',     'fortios'),
     # ── New platforms from bootstrap ──────────────────────────────────────
+    'arubaos-aos-s':      ('switches',      'aruba_os'),    # matches "ArubaOS (AOS-S)" label's real natural_slug
     'arubaos-ap':         ('switches',      'aruba_os'),    # role override → AP section
     'arubaos-cx-aos-cx':  ('switches',      'aruba_aoscx'),
     'aruba-clearpass':    ('access_points', 'aruba_clearpass_api'),

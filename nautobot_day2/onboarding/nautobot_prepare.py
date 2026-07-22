@@ -131,10 +131,19 @@ PLATFORM_ALIASES = {
     'aruba-oscx':       'arubaoscx',
     'aos-cx':           'arubaoscx',
     'aoscx':            'arubaoscx',
+    # aruba ap
+    'arubaos-ap':       'arubaos-ap',
+    'aruba os ap':      'arubaos-ap',
+    'aruba ap':         'arubaos-ap',
     # juniper
     'junos':            'junos',
     'junos-srx':        'junos-srx',
     'srx':              'junos-srx',
+    # juniper ap (mist)
+    'junos-ap-mist':    'junos-ap-mist',
+    'junos ap':         'junos-ap-mist',
+    'junos mist':       'junos-ap-mist',
+    'mist ap':          'junos-ap-mist',
     # cisco
     'iosxe':            'iosxe',
     'ios-xe':           'iosxe',

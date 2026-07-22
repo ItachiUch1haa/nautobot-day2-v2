@@ -50,7 +50,7 @@ VENDOR_MATRIX = {
                 "enabled": True,
                 "roles": ["ap"],
                 "platforms": {
-                    "arubaos": {
+                    "arubaos-ap": {
                         "label": "ArubaOS AP",
                         "napalm_driver": "",
                         "default": True,
@@ -146,7 +146,7 @@ VENDOR_MATRIX = {
                 "enabled": True,
                 "roles": ["ap"],
                 "platforms": {
-                    "junos": {
+                    "junos-ap-mist": {
                         "label": "Junos AP (Mist)",
                         "napalm_driver": "",
                         "default": True
@@ -489,6 +489,7 @@ def get_env_vars(vendor_slug, device_type, access_method):
 
 def get_all_platforms():
     """Returns flat list of all platform slugs across all enabled combos."""
+    validate_platform_slug_uniqueness()
     platforms = {}
     for vendor_slug, vendor_data in VENDOR_MATRIX.items():
         for dt_key, dt_data in vendor_data["device_types"].items():
@@ -502,6 +503,40 @@ def get_all_platforms():
                     "vendor": vendor_slug
                 }
     return platforms
+
+
+def validate_platform_slug_uniqueness():
+    """
+    Enforces the naming rule: platform slugs must be unique across ALL
+    device types for a given vendor, not just within one device type.
+    Without this, get_all_platforms() below silently overwrites one
+    device type's platform entry with another's if they share a slug
+    (this happened for months with aruba/juniper's "ap" device type
+    reusing the switch's bare slug — arubaos, junos — silently dropping
+    the real switch platform and misassigning every switch onboarded
+    since to the AP platform instead. Fixed by renaming the ap-type
+    slugs to arubaos-ap / junos-ap-mist, matching the naming convention
+    sync_network_data.py's PLATFORM_MAP already expected.)
+    Called automatically by get_all_platforms() so a future vendor
+    addition that violates this rule fails immediately and loudly at
+    bootstrap time, instead of silently corrupting device onboarding.
+    """
+    for vendor_slug, vendor_data in VENDOR_MATRIX.items():
+        seen = {}
+        for dt_key, dt_data in vendor_data["device_types"].items():
+            if not dt_data["enabled"]:
+                continue
+            for plat_slug in dt_data["platforms"]:
+                if plat_slug in seen:
+                    raise ValueError(
+                        f"PLATFORM SLUG COLLISION in vendor_matrix.py: "
+                        f"'{plat_slug}' is declared under both "
+                        f"{vendor_slug}/{seen[plat_slug]} and {vendor_slug}/{dt_key}. "
+                        f"Platform slugs must be globally unique per vendor "
+                        f"across all device types — give one of them a "
+                        f"distinct slug (e.g. '<slug>-ap')."
+                    )
+                seen[plat_slug] = dt_key
 
 
 def get_all_manufacturers():
