@@ -108,6 +108,48 @@ Once a tenant profile exists, the rest of the flow works from chat.
 When you're ready for Microsoft Teams, it's the same `nautobot_day2`
 code — just add the Teams adapter to `nautobot-chatops`' own config.
 
+## Deploying this
+
+`deploy/single-server/` has a ready-to-run Docker Compose stack (Postgres +
+Redis + Nautobot + one Celery worker with `nautobot_day2` installed) for a
+first test. `deploy/single-server/INSTALL.md` walks through it from a
+completely clean Ubuntu server; `deploy/single-server/README.md` covers the
+compose stack itself if Docker's already set up. That single-server layout
+is also the starting point for the multi-server production shape — see
+"Scaling to multiple servers" below.
+
+### Scaling to multiple servers
+
+`nautobot_day2` is one plugin (one Python package), not one-plugin-per-server
+— the same install runs on every machine, and what changes between a
+single-server test and a multi-server production cluster is only
+*configuration*, not code:
+
+- **Nautobot web + Postgres + Redis** stay on one machine (or their own
+  machines, for HA) — this is the tier a normal load balancer (nginx/HAProxy)
+  sits in front of, same as any web app.
+- **Celery workers are the tier that scales horizontally for device count**:
+  add more worker machines, all pointed at the same Redis, and Redis's queue
+  naturally spreads work across however many are running — that *is* the
+  load balancing for device sync, no separate load-balancer software needed
+  for this tier. `max_concurrent_per_site` still caps how many run against
+  any one site at once, regardless of total worker count.
+- This is proven out structurally (see `deploy/single-server/`) but the
+  multi-server split, Nornir-based orchestration, a real secrets broker
+  (Vault/OpenBao), and split sync-vs-config-push worker pools for MSP scale
+  are planned next, not built yet — see "Status" below.
+
+### Status — what's actually been verified
+
+- Every module here compiles and its internal wiring (imports, function
+  signatures across files) has been checked.
+- The Docker Compose stack's structure is validated (`docker compose config`),
+  but has not yet been booted against a live Nautobot instance anywhere —
+  first real boot happens on your own server.
+- Not yet built: Nornir-based device orchestration, a real secrets broker,
+  split worker pools for config-push automation, and the allowlist-gated
+  ad-hoc command execution path for external agent troubleshooting.
+
 ## Running the onboarding pipeline
 
 `onboard_cli.py` is the entry point for onboarding a new tenant/site — it
