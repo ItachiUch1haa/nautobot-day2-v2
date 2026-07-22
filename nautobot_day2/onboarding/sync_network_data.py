@@ -42,6 +42,7 @@ sys.path.insert(0, LAB_DIR)
 sys.path.insert(0, os.path.dirname(LAB_DIR))
 from vendor_matrix import VENDOR_MATRIX
 from client import NautobotClient
+from nautobot_day2.openbao_client import fetch_openbao_secret
 
 client = NautobotClient(env_file=os.path.join(LAB_DIR, '.env'))
 URL   = client.url
@@ -268,7 +269,8 @@ def resolve_creds(sg_name, tenant_slug):
 
     for prefix, var_map in prefix_map.items():
         if sg_name.startswith(prefix + '-') or sg_name == prefix:
-            creds = {k: os.environ.get(v, '') for k, v in var_map.items()}
+            secret_data = fetch_openbao_secret(tenant_slug.lower(), prefix)
+            creds = {k: secret_data.get(v, '') for k, v in var_map.items()}
             creds['_prefix']  = prefix
             creds['_var_map'] = var_map
             return creds

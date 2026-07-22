@@ -26,6 +26,12 @@ dev = [
 chatops = [
     "nautobot-chatops>=3.0",
 ]
+broker = [
+    "nornir>=3.3,<4.0",
+    "nornir-netmiko>=1.0",
+    "nornir-nautobot>=4.2",
+    "mcp>=1.0",
+]
 
 [project.entry-points."nautobot.workers"]
 nautobot_day2 = "nautobot_day2.chatops.worker"
