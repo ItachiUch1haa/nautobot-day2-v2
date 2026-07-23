@@ -297,13 +297,18 @@ def api_credential_requirements(slug):
     for prefix, group_name in derived['secrets_groups'].items():
         for var_base in derived['prefix_env_vars'].get(prefix, []):
             secret_type = _infer_secret_type(var_base)
-            if not secret_type:
-                continue
+            # _infer_secret_type() correctly returns None for plain config
+            # fields (BASE_URL, TYPE) that shouldn't become Nautobot Secret
+            # objects -- but that exclusion is wrong for THIS route, whose
+            # job is to tell the frontend what to render, not what becomes
+            # a Secret. Give these a distinct 'config' marker instead of
+            # skipping them entirely, so they still show up in Step 4.
+            display_type = secret_type or 'config'
             fields.append({
                 'var_name': f"{var_base}_{suffix}",
-                'secret_type': secret_type,
+                'secret_type': display_type,
                 'secrets_group': group_name,
-                'is_sensitive': secret_type in ('password', 'token', 'key'),
+                'is_sensitive': display_type in ('password', 'token', 'key'),
             })
 
     return jsonify({'slug': slug, 'fields': fields})

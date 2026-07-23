@@ -269,16 +269,22 @@ def _infer_secret_type(var_base):
     vars that are plain config rather than a credential (e.g. BASE_URL) —
     those stay in the tenant .env file only, they don't belong in Secrets.
     """
-    v = var_base.upper()
-    if v.endswith('_ID'):
+    # Token-based matching (split on '_'), not substring matching --
+    # substring checks like "'PASS' in v" incorrectly matched vendor
+    # names containing the substring as part of a larger word (e.g.
+    # ARUBA_CLEARPASS_BASE_URL contains "PASS" inside "CLEARPASS", not
+    # as the intended _PASS suffix -- was silently misclassified as a
+    # password field). Splitting into whole tokens avoids this.
+    tokens = var_base.upper().split('_')
+    if tokens[-1] == 'ID':
         return 'key'
-    if 'PASS' in v:
+    if 'PASS' in tokens:
         return 'password'
-    if 'USER' in v:
+    if 'USER' in tokens:
         return 'username'
-    if 'TOKEN' in v:
+    if 'TOKEN' in tokens:
         return 'token'
-    if 'SECRET' in v:
+    if 'SECRET' in tokens:
         return 'secret'
     return None
 
