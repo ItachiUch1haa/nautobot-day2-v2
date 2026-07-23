@@ -115,12 +115,17 @@ services:
     depends_on:
       nautobot:
         condition: service_healthy
+      openbao:
+        condition: service_healthy
       volume-init:
         condition: service_completed_successfully
     environment:
       NAUTOBOT_URL: http://nautobot:8080
       NAUTOBOT_TOKEN: ${NAUTOBOT_SUPERUSER_API_TOKEN:-0123456789abcdef0123456789abcdef01234567}
       NAUTOBOT_DAY2_TENANTS_DIR: /opt/nautobot/nautobot_day2_tenants
+      BAO_ADDR: "http://openbao:8200"
+      BAO_REFRESHER_ROLE_ID: "a73d98bb-6c1b-cf27-7309-b125bd5c9474"
+      BAO_REFRESHER_SECRET_ID: "${BAO_REFRESHER_SECRET_ID}"
     volumes:
       - tenants_data:/opt/nautobot/nautobot_day2_tenants
     ports:

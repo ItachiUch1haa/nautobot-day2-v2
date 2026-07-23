@@ -394,13 +394,50 @@ def api_save_credentials():
 
     not_found = [v for v in credentials if v not in updated]
 
+    suffix = slug.upper().replace('-', '_')
+
+    # Push saved values into OpenBao too -- the .env file above is kept
+    # as a fallback/legacy artifact, but OpenBao is the authoritative
+    # credential store going forward. Group the updated variables by
+    # their secrets-group prefix (reusing derived['prefix_env_vars'],
+    # the same mapping already used elsewhere in this file), then
+    # merge-update each group's OpenBao secret via the existing
+    # write-scoped refresher identity -- reused as-is, no new AppRole
+    # needed for this path. Unlike the token-rotation use of this same
+    # function, failures here are surfaced to the caller rather than
+    # swallowed: this is a foreground, user-initiated save, and the
+    # engineer needs to know if OpenBao didn't actually get the value.
+    var_to_prefix = {}
+    for _prefix, _var_bases in derived.get('prefix_env_vars', {}).items():
+        for _vb in _var_bases:
+            var_to_prefix[_vb] = _prefix
+
+    by_prefix = {}
+    for var_name in updated:
+        if not var_name.endswith(f"_{suffix}"):
+            continue
+        base_var = var_name[:-len(f"_{suffix}")]
+        prefix = var_to_prefix.get(base_var)
+        if not prefix:
+            continue
+        by_prefix.setdefault(prefix, {})[var_name] = credentials[var_name]
+
+    openbao_status = {}
+    if by_prefix:
+        from openbao_client import update_rotated_credential
+        for prefix, group_updates in by_prefix.items():
+            try:
+                update_rotated_credential(slug, prefix, group_updates)
+                openbao_status[prefix] = 'saved'
+            except Exception as _bao_err:
+                openbao_status[prefix] = f'FAILED: {_bao_err}'
+
     # If any saved value is a controller/API base URL, push it onto the
     # matching External Integration's remote_url too -- eliminates the
     # manual "go fix the placeholder URL in Nautobot's UI" step that
     # create_tenant.py's External Integration creation otherwise leaves
     # behind (it creates the integration with a hardcoded placeholder,
     # since the real URL isn't known until credentials are entered here).
-    suffix = slug.upper().replace('-', '_')
     integration_updates = []
     for var_name in updated:
         if not var_name.endswith(f"_{suffix}"):
@@ -431,6 +468,7 @@ def api_save_credentials():
         'updated': updated,
         'not_found_in_file': not_found,
         'integration_updates': integration_updates,
+        'openbao_status': openbao_status,
     })
 
 
