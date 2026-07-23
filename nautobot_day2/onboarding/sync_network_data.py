@@ -544,12 +544,36 @@ def ssh_get_data(device_ip, yaml_block, device_name, creds, dry_run):
     return results
 
 
+_ARUBA_TOKEN_CACHE = {}
+# In-process cache: tenant_slug -> {"access_token": ..., "expires_at": <unix ts>}
+# NOTE: per-process only -- agent-broker, agent-broker-mcp, and
+# nautobot-worker each run as separate processes/containers and do NOT
+# share this cache. A fully cross-process cache would need to store the
+# access_token + expiry in OpenBao itself; not done here, in-process
+# caching already eliminates the common case (repeated calls within one
+# running service) without the added complexity of another OpenBao
+# read/write per dispatch.
+
 def _aruba_central_get_token(creds, tenant_slug=''):
     """
     Exchange refresh_token for access_token.
-    Auto-saves new refresh_token back to env file + os.environ.
+    Auto-saves new refresh_token back to env file + OpenBao + os.environ.
+    Caches the access_token in-process (keyed by tenant_slug) until
+    shortly before its real expiry, so repeated calls within the same
+    running process reuse it instead of re-exchanging the refresh_token
+    on every single dispatch (each exchange also risks rotating the
+    refresh_token again, which is unnecessary churn if the access_token
+    is still perfectly valid).
     """
     import re as _re
+    import time as _time
+
+    cache_key = tenant_slug or f"_no_tenant_{id(creds)}"
+    cached = _ARUBA_TOKEN_CACHE.get(cache_key)
+    if cached and cached["expires_at"] > _time.time() + 60:
+        # Still valid with a 60s safety buffer -- skip the exchange entirely
+        return cached["access_token"]
+
     r = requests.post(
         f"{creds['base_url']}/oauth2/token",
         params={
@@ -565,6 +589,11 @@ def _aruba_central_get_token(creds, tenant_slug=''):
 
     token_data   = r.json()
     access_token = token_data.get('access_token', '')
+    expires_in   = token_data.get('expires_in', 1800)  # conservative fallback if field is ever absent
+    _ARUBA_TOKEN_CACHE[cache_key] = {
+        "access_token": access_token,
+        "expires_at": __import__('time').time() + expires_in,
+    }
     new_refresh  = token_data.get('refresh_token', '')
     old_refresh  = creds.get('refresh_token', '')
 
