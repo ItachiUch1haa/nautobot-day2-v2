@@ -362,6 +362,7 @@ access_points:
     data_source         : "api"
     api_type            : "aruba_central"
     secrets_group       : "aruba-central-api"
+    credential_rotates  : true
     api_endpoints:
       devices           : "/monitoring/v2/aps"
       lldp_neighbors    : "/monitoring/v1/aps/{serial}/neighbors"

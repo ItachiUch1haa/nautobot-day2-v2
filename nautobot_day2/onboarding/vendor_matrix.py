@@ -34,7 +34,8 @@ VENDOR_MATRIX = {
                         "secrets_group_prefix": "aruba-central-api",
                         "env_vars": ["ARUBA_CLIENT_ID", "ARUBA_CLIENT_SECRET", "ARUBA_REFRESH_TOKEN", "ARUBA_CENTRAL_BASE_URL", "ARUBA_CENTRAL_TYPE"],
                         "external_integration": "Aruba Central",
-                        "sync_handler": "aruba_central_switch_api"
+                        "sync_handler": "aruba_central_switch_api",
+                        "credential_rotates": True
                     },
                     "ssh": {
                         "enabled": True,
@@ -64,7 +65,8 @@ VENDOR_MATRIX = {
                         "secrets_group_prefix": "aruba-central-api",
                         "env_vars": ["ARUBA_CLIENT_ID", "ARUBA_CLIENT_SECRET", "ARUBA_REFRESH_TOKEN", "ARUBA_CENTRAL_BASE_URL", "ARUBA_CENTRAL_TYPE"],
                         "external_integration": "Aruba Central",
-                        "sync_handler": "aruba_central_api"
+                        "sync_handler": "aruba_central_api",
+                        "credential_rotates": True
                     },
                     "ssh": {
                         "enabled": True,

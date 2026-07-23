@@ -577,6 +577,20 @@ def _aruba_central_get_token(creds, tenant_slug=''):
         os.environ[env_key] = new_refresh
         creds['refresh_token'] = new_refresh
 
+        # Update OpenBao (authoritative store) — separate, write-scoped
+        # identity, never the read-only sync-engine/broker roles. Uses
+        # creds['_prefix'] (set by resolve_creds()) to derive the KV
+        # path suffix. Never raises upward: a failed save-back should
+        # not prevent returning an access_token already obtained.
+        try:
+            from openbao_client import update_rotated_credential
+            prefix = creds.get('_prefix', '')
+            if prefix:
+                update_rotated_credential(tenant_slug, prefix, {env_key: new_refresh})
+                print(f"  ✅ refresh_token auto-saved → OpenBao ({tenant_slug}/{prefix})")
+        except Exception as _bao_err:
+            print(f"  ⚠️  OpenBao refresh_token save failed (env file save still attempted): {_bao_err}")
+
         # Update env file on disk. Prefer the real persisted location
         # (Django's PLUGINS_CONFIG, honoring NAUTOBOT_DAY2_TENANTS_DIR)
         # over the old bare-metal-era paths, which don't exist in the
@@ -613,7 +627,7 @@ def _aruba_central_get_token(creds, tenant_slug=''):
     return access_token
 
 
-def api_get_data(yaml_block, device_name, creds, dry_run):
+def api_get_data(yaml_block, device_name, creds, dry_run, tenant_slug=''):
     """
     Fetch data from cloud API.
     SIMULATED_OVERRIDE controls per-vendor live/sim mode.
@@ -694,7 +708,7 @@ def api_get_data(yaml_block, device_name, creds, dry_run):
     # ── Aruba Central API ─────────────────────────────────────────────────
     if api_type == 'aruba_central':
         base_url = creds.get('base_url', '')
-        token    = _aruba_central_get_token(creds)
+        token    = _aruba_central_get_token(creds, tenant_slug)
         api_h    = {'Authorization': f'Bearer {token}'}
 
         r = requests.get(
@@ -1539,7 +1553,7 @@ def sync_device(device, dry_run):
             return result
     else:
         try:
-            raw = api_get_data(yaml_block, name, creds, dry_run)
+            raw = api_get_data(yaml_block, name, creds, dry_run, tenant_slug)
         except Exception as _api_err:
             result.fail(ERR_UNKNOWN, str(_api_err)[:200], ERROR_FIXES[ERR_UNKNOWN])
             return result

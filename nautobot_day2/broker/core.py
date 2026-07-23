@@ -156,7 +156,7 @@ def run_diagnostic_command(device_name, command):
     api_type = yaml_block.get("api_type")
 
     if api_type and api_request:
-        return _dispatch_api(device_name, api_type, creds, api_request)
+        return _dispatch_api(device_name, api_type, creds, api_request, tenant_slug)
 
     if api_type and not api_request:
         raise Exception(
@@ -224,7 +224,7 @@ def run_diagnostic_command(device_name, command):
     return host_result[0].result
 
 
-def _dispatch_api(device_name, api_type, creds, api_request):
+def _dispatch_api(device_name, api_type, creds, api_request, tenant_slug=''):
     """
     Dispatch a generic {"method": ..., "path": ...} request against an
     API-managed device's cloud controller (Mist or Aruba Central),
@@ -249,7 +249,7 @@ def _dispatch_api(device_name, api_type, creds, api_request):
             headers = {"Authorization": f"Token {token}"}
         elif api_type == "aruba_central":
             base_url = creds.get("base_url", "")
-            access_token = _aruba_central_get_token(creds)
+            access_token = _aruba_central_get_token(creds, tenant_slug)
             headers = {"Authorization": f"Bearer {access_token}"}
         else:
             raise Exception(f"UNSUPPORTED_API_TYPE: '{api_type}' has no dispatch handler")
