@@ -183,6 +183,8 @@ services:
       - "8090:8090"
     entrypoint: []
     command: ["python3", "/source/nautobot-day2/nautobot_day2/broker/mcp_server.py"]
+    healthcheck:
+      disable: true
     restart: unless-stopped
 
   openbao:
