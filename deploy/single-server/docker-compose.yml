@@ -124,6 +124,8 @@ services:
       NAUTOBOT_TOKEN: ${NAUTOBOT_SUPERUSER_API_TOKEN:-0123456789abcdef0123456789abcdef01234567}
       NAUTOBOT_DAY2_TENANTS_DIR: /opt/nautobot/nautobot_day2_tenants
       BAO_ADDR: "http://openbao:8200"
+      BAO_ROLE_ID: "b46357d7-d0e9-60b3-c73d-fe472233edd2"
+      BAO_SECRET_ID: "${BAO_BROKER_SECRET_ID}"
       BAO_REFRESHER_ROLE_ID: "a73d98bb-6c1b-cf27-7309-b125bd5c9474"
       BAO_REFRESHER_SECRET_ID: "${BAO_REFRESHER_SECRET_ID}"
     volumes:

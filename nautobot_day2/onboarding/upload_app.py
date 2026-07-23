@@ -477,8 +477,11 @@ def api_validate_credentials():
     """
     Test that a tenant's stored credentials actually work, reusing
     vendor_test_app.py's connectivity-test functions rather than writing
-    new ones. Reads real values fresh from the tenant's .env file --
-    never trusts blank placeholders, never echoes values back.
+    new ones. Reads real values fresh from OpenBao -- the authoritative
+    credential store -- NOT the tenant's .env file, so this test
+    reflects what the actual sync engine/broker will use at runtime,
+    not a possibly-stale or never-synced local copy. Never trusts blank
+    placeholders, never echoes values back.
 
     Body: { "slug": "...", "tests": [
         {"vendor": "...", "role": "...", "access_method": "...",
@@ -486,10 +489,10 @@ def api_validate_credentials():
          "ip": "..." (only needed for ssh access methods)}, ...
     ] }
     """
-    from dotenv import dotenv_values
     from create_tenant import LAB_PROFILES_DIR
     from vendor_matrix import needs_enable_mode
     from vendor_test_app import test_ssh, test_mist, test_aruba_central, find_block
+    from openbao_client import fetch_openbao_secret
 
     data = request.json or {}
     slug = data.get('slug')
@@ -502,8 +505,21 @@ def api_validate_credentials():
     env_path = os.path.join(LAB_PROFILES_DIR, f"{slug}.env")
     if not os.path.exists(env_path):
         return jsonify({'error': 'Tenant env file does not exist yet'}), 404
-    env = dotenv_values(env_path)
     suffix = slug.upper().replace('-', '_')
+
+    # Cache OpenBao fetches per secrets-group prefix within this single
+    # request -- multiple tests commonly share the same prefix (e.g.
+    # several devices of the same vendor/access_method), no reason to
+    # re-fetch the same secret repeatedly.
+    _openbao_cache = {}
+
+    def _get_openbao_values(prefix):
+        if prefix not in _openbao_cache:
+            try:
+                _openbao_cache[prefix] = fetch_openbao_secret(slug, prefix)
+            except Exception as _e:
+                _openbao_cache[prefix] = {'_fetch_error': str(_e)}
+        return _openbao_cache[prefix]
 
     results = []
     for t in tests:
@@ -537,9 +553,17 @@ def api_validate_credentials():
             continue
 
         # Confirm required credential fields are actually filled in
+        prefix = method_def.get('secrets_group_prefix', '')
+        openbao_data = _get_openbao_values(prefix) if prefix else {}
+        if '_fetch_error' in openbao_data:
+            results.append({'vendor': vendor, 'role': role, 'access_method': access_method,
+                             'status': 'error',
+                             'message': f"Could not reach OpenBao: {openbao_data['_fetch_error']}"})
+            continue
+
         env_vars_needed = method_def.get('env_vars', [])
         full_names = [f"{v}_{suffix}" for v in env_vars_needed]
-        values = {v: env.get(full, '') for v, full in zip(env_vars_needed, full_names)}
+        values = {v: openbao_data.get(full, '') for v, full in zip(env_vars_needed, full_names)}
         missing = [v for v, val in values.items() if not val]
         if missing:
             results.append({'vendor': vendor, 'role': role, 'access_method': access_method,
@@ -568,9 +592,9 @@ def api_validate_credentials():
             enable = ''
             if needs_enable_mode(vendor, dtype, access_method):
                 enable_var = f"{method_def.get('enable_env_var','')}_{suffix}"
-                enable = env.get(enable_var, '')
+                enable = openbao_data.get(enable_var, '')
             user_var, pass_var = full_names[0], full_names[1]
-            test_result = test_ssh(ip, yaml_key, block, env.get(user_var, ''), env.get(pass_var, ''), enable)
+            test_result = test_ssh(ip, yaml_key, block, openbao_data.get(user_var, ''), openbao_data.get(pass_var, ''), enable)
 
         elif access_method == 'mist':
             test_result = test_mist(
