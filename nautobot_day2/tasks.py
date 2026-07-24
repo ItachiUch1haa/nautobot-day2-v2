@@ -109,9 +109,16 @@ def sync_device_task(self, device, tenant_slug, site_key, dry_run=False, max_con
 
     return {
         "device": device_name,
+        "device_id": getattr(result, "device_id", None),
         "status": result.status,
         "writes": getattr(result, "writes", {}) or {},
         "error": getattr(result, "error_msg", None),
+        # Raw LLDP neighbor data, carried through so sync_summary_callback
+        # can create cables AFTER every device in this batch has finished
+        # -- not here, which would race against other devices' own
+        # write_facts() (the lldp_hostname custom field cable-matching
+        # relies on) still being mid-sync.
+        "neighbors": getattr(result, "neighbors", None) or [],
     }
 
 
@@ -130,7 +137,28 @@ def sync_summary_callback(results, job_result_id, site_name, tenant_slug):
     ok = sum(1 for r in results if r.get("status") == "success")
     failed = sum(1 for r in results if r.get("status") == "failed")
     total_interfaces = sum(r.get("writes", {}).get("interfaces", 0) for r in results)
-    total_cables = sum(r.get("writes", {}).get("cables", 0) for r in results)
+
+    # Cable creation happens HERE, not per-device -- by this point every
+    # device task in the batch has finished, so every device's
+    # lldp_hostname custom field (written by write_facts) is guaranteed
+    # already committed. Doing this per-device instead would race
+    # against other devices still mid-sync, meaning cables would only
+    # form if tasks happened to complete in a lucky order.
+    total_cables = 0
+    try:
+        sync = _load_sync_engine()
+        for r in results:
+            if r.get("status") != "success":
+                continue
+            device_id = r.get("device_id")
+            neighbors = r.get("neighbors") or []
+            if not device_id or not neighbors:
+                continue
+            created = sync.write_cables(device_id, r["device"], neighbors, dry_run=False)
+            r.setdefault("writes", {})["cables"] = created
+            total_cables += created
+    except Exception as exc:
+        logger.warning("Batched cable creation failed: %s", exc)
 
     message = (
         f"Sync complete — site:{site_name} tenant:{tenant_slug} — "

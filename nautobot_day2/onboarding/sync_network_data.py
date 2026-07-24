@@ -866,6 +866,18 @@ def extract_facts(raw_output, yaml_key, device_name, device_serial=''):
                 facts['hostname'] = line.split(':')[-1].strip()
                 break
 
+        # Base MAC from the same system_info output already fetched --
+        # no new command needed. Aruba's format is dash-separated hex
+        # groups (e.g. "3821c7-4bede2"), normalized here to standard
+        # colon-separated format.
+        for line in sysinfo.splitlines():
+            if 'Base MAC Addr' in line and ':' in line:
+                raw_mac = line.split(':', 1)[-1].strip()
+                hex_only = raw_mac.replace('-', '')
+                if len(hex_only) == 12:
+                    facts['mac'] = ':'.join(hex_only[i:i+2] for i in range(0, 12, 2))
+                break
+
     elif yaml_key in ('juniper_junos', 'juniper_srx'):
         # Parse show version
         for line in version_out.splitlines():
@@ -889,6 +901,20 @@ def extract_facts(raw_output, yaml_key, device_name, device_serial=''):
                     if len(serial) > 5 and serial != 'BUILTIN':
                         facts['serial'] = serial
                         break
+
+        # Chassis base MAC from show chassis mac-addresses -- confirmed
+        # against real hardware this is the SAME MAC LLDP reports as the
+        # chassis ID to neighboring devices, making it a reliable match
+        # key for cable creation even when the neighbor only reports a
+        # verbose vendor/model description rather than a clean hostname.
+        # Line format: "    Base address     9c:5a:80:c3:97:ec"
+        mac_out = raw_output.get('chassis_mac', '')
+        for line in mac_out.splitlines():
+            if 'Base address' in line:
+                parts = line.split()
+                if parts:
+                    facts['mac'] = parts[-1].strip()
+                    break
 
     elif yaml_key in ('cisco_ios', 'cisco_iosxe', 'cisco_nxos'):
         for line in version_out.splitlines():
@@ -1076,7 +1102,7 @@ def extract_interfaces(raw_output, yaml_key):
     return []
 
 
-def extract_lldp(raw_output, yaml_key):
+def extract_lldp(raw_output, yaml_key, device_serial='', device_name=''):
     """
     Parse LLDP neighbor output into structured list.
     Returns list of dicts:
@@ -1084,6 +1110,36 @@ def extract_lldp(raw_output, yaml_key):
     Only returns entries with a real port name (ge-x/x/x, 1/x, portX etc.)
     """
     neighbors = []
+
+    # ── Fortinet AP: LLDP is embedded within the SAME wtp-status blob
+    # used for facts, not a separate command -- the standalone
+    # 'diagnose lldprx neighbor summary' command only reports the
+    # FIREWALL's own neighbors on its own physical ports, never anything
+    # specific to a downstream AP (confirmed against real hardware), so
+    # it has been removed from this vendor's yaml block entirely.
+    if yaml_key == 'fortinet_ap_ssh':
+        version_out = raw_output.get('version', '')
+        blocks = _parse_wtp_status_blocks(version_out)
+        matched = None
+        if device_serial:
+            matched = next((b for b in blocks if b.get('wtp-id') == device_serial), None)
+        if not matched and device_name:
+            matched = next((b for b in blocks if b.get('name') == device_name), None)
+        if matched:
+            local_port  = matched.get('local port', '')
+            remote_port = matched.get('port id', '')
+            remote_sys  = matched.get('sys description', '') or matched.get('sys name', '')
+            chassis     = matched.get('chassis id', '').replace('mac', '').strip()
+            if local_port and remote_port:
+                neighbors.append({
+                    'local_port':     local_port,
+                    'remote_system':  remote_sys.strip(),
+                    'remote_port':    remote_port,
+                    'remote_ip':      '',
+                    'remote_chassis': chassis,
+                })
+        return neighbors
+
 
     # ── Juniper: tabular one-line-per-neighbor ────────────────────────────
     # Header: "Local Interface  Parent Interface  Chassis Id  Port info  System Name"
@@ -1314,6 +1370,18 @@ def _find_interface(device_id, port_name):
     if r.ok and r.json().get('count', 0) > 0:
         return r.json()['results'][0]['id']
 
+    # 5. Single-interface fallback -- a device with exactly ONE interface
+    # total has no real ambiguity about which port "the" connection is
+    # on, no matter what name a remote system reports for its own view
+    # of that link (e.g. a FortiAP calling its one physical port "eth0"
+    # internally, while Nautobot's onboarding created it as "mgmt0" --
+    # same physical port, two different names from two different
+    # systems, same underlying pattern as device-name mismatches solved
+    # elsewhere via serial matching).
+    all_r = client.get('dcim/interfaces', params={'device_id': device_id, 'limit': 5})
+    if all_r.ok and all_r.json().get('count', 0) == 1:
+        return all_r.json()['results'][0]['id']
+
     return None
 
 
@@ -1356,6 +1424,25 @@ def write_cables(device_id, device_name, lldp_neighbors, dry_run):
     # Map 3: device name → device_id
     by_name = {d['name'].lower(): d['id'] for d in all_devs}
 
+    # Map 4: interface MAC address → device_id (built from real Interface
+    # objects, not the device list -- MAC lives on the interface in
+    # Nautobot's model). Useful when the remote LLDP data gives a verbose
+    # vendor/model description instead of a clean hostname (e.g. Fortinet
+    # AP neighbors), where lldp_hostname/name matching can't succeed but
+    # the chassis MAC is a reliable, unambiguous identifier.
+    by_mac = {}
+    # NOTE: a params={'mac_address__n': ''} filter was tried first and
+    # confirmed (via direct testing, not assumption) to be silently
+    # ignored by this Nautobot version -- returned the exact same count
+    # as an unfiltered query. Filtering client-side instead.
+    intf_r = client.get('dcim/interfaces', params={'limit': 500})
+    if intf_r.ok:
+        for intf in intf_r.json().get('results', []):
+            mac = (intf.get('mac_address') or '').lower()
+            dev_ref = intf.get('device') or {}
+            if mac and dev_ref:
+                by_mac[mac] = dev_ref['id']
+
     # Get existing cables to avoid duplicates
     r2 = client.get('dcim/cables', params={'limit': 500})
     existing_cables = set()
@@ -1388,6 +1475,15 @@ def write_cables(device_id, device_name, lldp_neighbors, dry_run):
         # Level 2: primary IP
         if not remote_dev_id and remote_ip:
             remote_dev_id = by_ip.get(remote_ip)
+
+        # Level 2b: chassis MAC address -- useful when remote_system is
+        # a verbose vendor/model description rather than a clean
+        # hostname (e.g. Fortinet AP neighbors), where hostname-based
+        # matching (levels 1 and 3) can't succeed but the chassis MAC is
+        # a reliable, unambiguous identifier.
+        remote_chassis = nbr.get('remote_chassis', '').strip().lower()
+        if not remote_dev_id and remote_chassis:
+            remote_dev_id = by_mac.get(remote_chassis)
 
         # Level 3: device name partial match
         if not remote_dev_id and remote_sys:
@@ -1500,7 +1596,18 @@ def write_inventory_objects(device_id, facts, dry_run):
     interface_id = intf_results[0]['id']
 
     if mac:
-        client.patch(f'dcim/interfaces/{interface_id}', {'mac_address': mac})
+        # Nautobot's mac_address field requires colon-separated format.
+        # Mist/Aruba Central return raw hex with no separators (e.g.
+        # 'c878678b2c08') -- confirmed this was silently rejected before
+        # (the previous PATCH call didn't check its response status at
+        # all). Normalize before writing, and actually check the result
+        # this time.
+        mac_normalized = mac
+        if ':' not in mac_normalized and len(mac_normalized) == 12:
+            mac_normalized = ':'.join(mac_normalized[i:i+2] for i in range(0, 12, 2))
+        mac_r = client.patch(f'dcim/interfaces/{interface_id}', {'mac_address': mac_normalized})
+        if not mac_r.ok:
+            print(f"  ⚠️  MAC write failed for interface {interface_id}: {mac_r.status_code} {mac_r.text[:150]}")
 
     if live_ip and live_ip != current_address:
         new_ip_r = client.get('ipam/ip-addresses', params={'address': live_ip, 'limit': 1})
@@ -1803,7 +1910,7 @@ def sync_device(device, dry_run):
     # Extract structured data
     facts      = extract_facts(raw, yaml_key, name, device.get('serial', ''))
     interfaces = extract_interfaces(raw, yaml_key)
-    neighbors  = extract_lldp(raw, yaml_key)
+    neighbors  = extract_lldp(raw, yaml_key, device.get('serial', ''), name)
 
     result.facts      = facts
     result.interfaces = interfaces
@@ -1811,8 +1918,18 @@ def sync_device(device, dry_run):
 
     # Write to Nautobot
     dev_id = device['id']
+    result.device_id = dev_id
     result.writes['interfaces'] = write_interfaces(dev_id, interfaces, dry_run)
-    result.writes['cables'] = write_cables(dev_id, device['name'], neighbors, dry_run)
+    # Cable creation deliberately NOT done here -- moved to
+    # sync_summary_callback (tasks.py), which only runs after every
+    # device in this sync batch has finished. Doing it per-device here
+    # raced against other devices' write_facts() (which sets the
+    # lldp_hostname custom field cable-matching relies on), meaning
+    # cables between two devices synced in the same batch would only
+    # form if they happened to be processed in the right order -- not a
+    # reliable topology-derivation guarantee. result.neighbors carries
+    # the raw LLDP data through to the callback instead.
+    result.writes['cables'] = 0
     result.writes['facts']      = write_facts(dev_id, facts, dry_run)
     write_inventory_objects(dev_id, facts, dry_run)
     result.success()

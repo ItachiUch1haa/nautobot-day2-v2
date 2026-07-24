@@ -116,6 +116,7 @@ switches:
       version           : "show version"
       mac_table         : "show ethernet-switching table"
       chassis_hardware  : "show chassis hardware"
+      chassis_mac       : "show chassis mac-addresses"
     parsers:
       vlans:
         type            : "regex"
@@ -404,7 +405,6 @@ access_points:
     commands:
       version           : "get wireless-controller wtp-status"
       interfaces        : "get system interface"
-      lldp_neighbors    : "diagnose lldprx neighbor summary"
       ap_status         : "get wireless-controller wtp"
     parsers:
       interfaces:
@@ -522,6 +522,7 @@ firewalls:
       routing_table     : "show route"
       security_zones    : "show security zones"
       arp_table         : "show arp"
+      chassis_mac       : "show chassis mac-addresses"
     parsers:
       interfaces:
         type            : "regex"
