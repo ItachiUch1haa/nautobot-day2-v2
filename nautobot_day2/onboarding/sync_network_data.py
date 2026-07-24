@@ -781,7 +781,7 @@ def api_get_data(yaml_block, device_name, creds, dry_run, tenant_slug=''):
     return _sim_api_output(yaml_key, device_name)
 
 
-def extract_facts(raw_output, yaml_key, device_name):
+def extract_facts(raw_output, yaml_key, device_name, device_serial=''):
     """
     Extract device facts from SSH command output or API response.
     API responses have direct fields (serial, model, firmware).
@@ -817,6 +817,31 @@ def extract_facts(raw_output, yaml_key, device_name):
                 facts['serial'] = line.replace('Serial-Number:', '').strip()
             elif line.startswith('Hostname:'):
                 facts['hostname'] = line.replace('Hostname:', '').strip()
+
+    elif yaml_key == 'fortinet_ap_ssh':
+        # version_out here is actually `get wireless-controller wtp-status`
+        # run against the SIBLING FIREWALL (see _find_site_firewall_ip) --
+        # it reports every AP the firewall manages, so find THIS specific
+        # device's block: match by serial (wtp-id) first, fall back to
+        # matching by device name if serial isn't set in Nautobot yet.
+        blocks = _parse_wtp_status_blocks(version_out)
+        matched = None
+        if device_serial:
+            matched = next((b for b in blocks if b.get('wtp-id') == device_serial), None)
+        if not matched:
+            matched = next((b for b in blocks if b.get('name') == device_name), None)
+        if matched:
+            facts['serial']   = matched.get('wtp-id', '')
+            facts['firmware'] = matched.get('software-version', '')
+            facts['status']   = matched.get('connection-state', '')
+            facts['ip']       = matched.get('local-ipv4-addr', '')
+            facts['mac']      = matched.get('board-mac', '')
+            facts['hostname'] = matched.get('name', device_name)
+        else:
+            facts['_match_error'] = (
+                f"No WTP entry matched serial={device_serial!r} or "
+                f"name={device_name!r} among {len(blocks)} AP(s) found on the firewall"
+            )
 
     elif yaml_key in ('aruba_os', 'aruba_aoscx'):
         # Firmware from show version
@@ -1407,6 +1432,98 @@ def write_cables(device_id, device_name, lldp_neighbors, dry_run):
     return created
 
 
+def _find_or_create_software_version(platform_id, version_string):
+    """
+    Find or create a SoftwareVersion object for this platform+version.
+    Device.software_version is a real object reference in Nautobot, not
+    free text -- so firmware data is queryable/reportable instead of
+    buried in a comments string.
+    """
+    r = client.get('dcim/software-versions', params={'platform': platform_id, 'version': version_string, 'limit': 1})
+    if r.ok:
+        results = r.json().get('results', [])
+        if results:
+            return results[0]['id']
+    status_r = client.get('extras/statuses', params={'content_types': 'dcim.softwareversion', 'name': 'Active', 'limit': 1})
+    status_results = status_r.json().get('results', []) if status_r.ok else []
+    if not status_results:
+        return None
+    create_r = client.post('dcim/software-versions', {
+        'platform': platform_id,
+        'version': version_string,
+        'status': status_results[0]['id'],
+    })
+    return create_r.json()['id'] if create_r.ok else None
+
+
+def write_inventory_objects(device_id, facts, dry_run):
+    """
+    Write INVENTORY facts (firmware, MAC, management IP) to their real
+    Nautobot objects -- Device.software_version, Interface.mac_address,
+    Device.primary_ip4 -- rather than free text. Operational TELEMETRY
+    facts (status, uptime, clients, down_reason, radios, group)
+    deliberately stay in write_facts()'s comments field -- this is a
+    separate, additive write, not a replacement for write_facts().
+    """
+    if dry_run:
+        return
+    r = client.get(f'dcim/devices/{device_id}')
+    if not r.ok:
+        return
+    device = r.json()
+
+    firmware = facts.get('firmware', '')
+    if firmware:
+        platform_ref = device.get('platform') or {}
+        if platform_ref:
+            sv_id = _find_or_create_software_version(platform_ref['id'], firmware)
+            if sv_id:
+                client.patch(f'dcim/devices/{device_id}', {'software_version': sv_id})
+
+    mac = facts.get('mac', '')
+    live_ip = facts.get('ip', '')
+    primary_ip4_ref = device.get('primary_ip4')
+    if not primary_ip4_ref:
+        return
+
+    ip_r = client.get(f"ipam/ip-addresses/{primary_ip4_ref['id']}")
+    if not ip_r.ok:
+        return
+    ip_data = ip_r.json()
+    current_address = ip_data.get('address', '').split('/')[0]
+    mask = ip_data.get('address', '/24').split('/')[-1]
+
+    intf_r = client.get('dcim/interfaces', params={'ip_addresses': primary_ip4_ref['id'], 'limit': 1})
+    intf_results = intf_r.json().get('results', []) if intf_r.ok else []
+    if not intf_results:
+        return
+    interface_id = intf_results[0]['id']
+
+    if mac:
+        client.patch(f'dcim/interfaces/{interface_id}', {'mac_address': mac})
+
+    if live_ip and live_ip != current_address:
+        new_ip_r = client.get('ipam/ip-addresses', params={'address': live_ip, 'limit': 1})
+        new_ip_results = new_ip_r.json().get('results', []) if new_ip_r.ok else []
+        if new_ip_results:
+            new_ip_id = new_ip_results[0]['id']
+        else:
+            status_r = client.get('extras/statuses', params={'content_types': 'ipam.ipaddress', 'name': 'Active', 'limit': 1})
+            status_results = status_r.json().get('results', []) if status_r.ok else []
+            if not status_results:
+                return
+            create_r = client.post('ipam/ip-addresses', {
+                'address': f'{live_ip}/{mask}',
+                'status': status_results[0]['id'],
+            })
+            if not create_r.ok:
+                return
+            new_ip_id = create_r.json()['id']
+        client.post('ipam/ip-address-to-interface/', {'ip_address': new_ip_id, 'interface': interface_id})
+        client.patch(f'dcim/devices/{device_id}', {'primary_ip4': new_ip_id})
+
+
+
 def write_facts(device_id, facts, dry_run):
     if dry_run: return 1
 
@@ -1518,6 +1635,76 @@ def get_devices(site_name, tenant_slug, category, failed_only, last_failed):
         enriched.append(d)
     return enriched
 
+def _find_site_firewall_ip(site_name, tenant_slug):
+    """
+    For Fortinet AP rows using the fortinet_ap_ssh fallback: a real
+    FortiAP has no independently reachable SSH server (confirmed this
+    session via a genuine TCP timeout against real hardware) -- it is
+    managed entirely through its controlling FortiGate's
+    wireless-controller function. Finds that firewall's own device
+    record at the same site and returns its real primary IP, so the SSH
+    connection actually reaches something, instead of the AP's own
+    (non-functional-for-SSH) IP.
+    """
+    found, loc = client.find_by_name('dcim/locations', site_name)
+    if not found:
+        return ''
+    r = client.get('dcim/devices', params={'location': loc['id']})
+    if not r.ok:
+        return ''
+    for d in r.json().get('results', []):
+        role_ref = d.get('role') or {}
+        if not role_ref:
+            continue
+        role_resp = client.get_absolute(role_ref['url'])
+        if not role_resp.ok or role_resp.json().get('name') != 'branch-fw':
+            continue
+        platform_ref = d.get('platform') or {}
+        if not platform_ref:
+            continue
+        platform_resp = client.get_absolute(platform_ref['url'])
+        if not platform_resp.ok or 'forti' not in platform_resp.json().get('name', '').lower():
+            continue
+        ip_ref = d.get('primary_ip4') or {}
+        if not ip_ref:
+            continue
+        ip_resp = client.get_absolute(ip_ref['url'])
+        if ip_resp.ok:
+            return ip_resp.json().get('address', '').split('/')[0]
+    return ''
+
+
+def _parse_wtp_status_blocks(raw_text):
+    """
+    Splits `get wireless-controller wtp-status` output into one dict per
+    managed AP. Each AP's block starts with a line like:
+      WTP: <name>  <index>-<ip>:<port>
+    followed by indented "key : value" lines until the next WTP: line.
+    Returns a list of dicts (at minimum: name, wtp-id, plus whatever
+    else was present -- radio sub-section fields with repeated key names
+    are ignored in favor of the first (top-level) occurrence).
+    """
+    blocks = []
+    current = None
+    for line in raw_text.splitlines():
+        if line.startswith('WTP:'):
+            if current:
+                blocks.append(current)
+            rest = line[len('WTP:'):].strip()
+            name = rest.split('  ')[0].strip() if '  ' in rest else rest
+            current = {'name': name}
+        elif current is not None and ':' in line:
+            key, _, val = line.strip().partition(':')
+            key = key.strip()
+            val = val.strip()
+            if key and key not in current:
+                current[key] = val
+    if current:
+        blocks.append(current)
+    return blocks
+
+
+
 
 # ── Main sync loop ────────────────────────────────────────────────────────────
 def sync_device(device, dry_run):
@@ -1567,6 +1754,28 @@ def sync_device(device, dry_run):
                         f'Fill {missing} in {_tenants_dir}/{tenant_slug}.env')
             return result
 
+    # Redirect connection target for Fortinet AP fallback: a real
+    # FortiAP has no independently reachable SSH server (confirmed this
+    # session via a genuine TCP timeout against real hardware) -- it is
+    # managed entirely through its controlling FortiGate. Find that
+    # firewall's own IP and use it instead of this AP's own
+    # (non-functional-for-SSH) IP.
+    if yaml_key == 'fortinet_ap_ssh':
+        loc_ref = device.get('location') or {}
+        loc_name = ''
+        if loc_ref:
+            loc_resp = client.get_absolute(loc_ref['url'])
+            if loc_resp.ok:
+                loc_name = loc_resp.json().get('name', '')
+        fw_ip = _find_site_firewall_ip(loc_name, tenant_slug) if loc_name else ''
+        if fw_ip:
+            device_ip = fw_ip
+        else:
+            result.fail(ERR_UNKNOWN,
+                        f"No Fortinet firewall found at site '{loc_name}' to route FortiAP connection through",
+                        'Confirm a Fortinet branch-fw device exists at this site with a primary IP set')
+            return result
+
     # Fetch data
     if data_source == 'ssh':
         try:
@@ -1592,7 +1801,7 @@ def sync_device(device, dry_run):
         return result
 
     # Extract structured data
-    facts      = extract_facts(raw, yaml_key, name)
+    facts      = extract_facts(raw, yaml_key, name, device.get('serial', ''))
     interfaces = extract_interfaces(raw, yaml_key)
     neighbors  = extract_lldp(raw, yaml_key)
 
@@ -1605,6 +1814,7 @@ def sync_device(device, dry_run):
     result.writes['interfaces'] = write_interfaces(dev_id, interfaces, dry_run)
     result.writes['cables'] = write_cables(dev_id, device['name'], neighbors, dry_run)
     result.writes['facts']      = write_facts(dev_id, facts, dry_run)
+    write_inventory_objects(dev_id, facts, dry_run)
     result.success()
     return result
 

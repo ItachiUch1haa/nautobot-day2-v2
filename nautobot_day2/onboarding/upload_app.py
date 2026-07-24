@@ -723,6 +723,42 @@ def _validate_rows(rows, tenant_slug):
                 if fw_sg:
                     site_firewall_sg[site] = fw_sg
 
+    def _find_live_firewall_sg(site):
+        """
+        Fallback for Fortinet AP credential inheritance when no firewall
+        exists in the CURRENT onboarding batch -- query Nautobot's real
+        device inventory for this site directly, since the firewall may
+        already have been onboarded in an earlier, separate session.
+        Returns the REAL secrets_group name already on that device (not
+        a re-derived guess), or '' if none found.
+        """
+        found, loc = client.find_by_name('dcim/locations', site)
+        if not found:
+            return ''
+        r = client.get('dcim/devices', params={'location': loc['id']})
+        if not r.ok:
+            return ''
+        for d in r.json().get('results', []):
+            role_ref = d.get('role') or {}
+            if not role_ref:
+                continue
+            role_resp = client.get_absolute(role_ref['url'])
+            if not role_resp.ok or role_resp.json().get('name') != 'branch-fw':
+                continue
+            platform_ref = d.get('platform') or {}
+            if not platform_ref:
+                continue
+            platform_resp = client.get_absolute(platform_ref['url'])
+            if not platform_resp.ok or 'forti' not in platform_resp.json().get('name', '').lower():
+                continue
+            sg_ref = d.get('secrets_group') or {}
+            if not sg_ref:
+                continue
+            sg_resp = client.get_absolute(sg_ref['url'])
+            if sg_resp.ok:
+                return sg_resp.json().get('name', '')
+        return ''
+
     # Pre-pass: group rows into stacks by stack_group. Only one row per
     # stack needs a management IP (the whole stack is reached through it);
     # the rest can leave IP blank. Cross-vendor stacks aren't supported --
@@ -872,9 +908,14 @@ def _validate_rows(rows, tenant_slug):
         if vendor == 'fortinet' and role == 'ap' and managed_by == 'fortigate':
             site = row.get('site', '').strip()
             sg = site_firewall_sg.get(site, '')
+            if not sg and site:
+                sg = _find_live_firewall_sg(site)
+                if sg:
+                    site_firewall_sg[site] = sg  # cache for other rows in this same batch
             if not sg:
                 warns.append(
-                    f"No Fortinet firewall found for site '{site}' in this CSV -- "
+                    f"No Fortinet firewall found for site '{site}' in this CSV "
+                    "or in Nautobot's existing inventory -- "
                     "cannot determine which credentials this AP should use"
                 )
         elif vendor and role and managed_by and tenant_slug:
@@ -1126,17 +1167,38 @@ def api_deploy():
         return jsonify(response)
     tenant_id = tenant_results[0]['id']
 
-    # Look up the "Sync All Sites for Tenant" Job's ID by name
-    jr = client.get('extras/jobs', params={'name': 'Sync All Sites for Tenant', 'limit': 1})
+    # Resolve the site to its real Nautobot Location ID -- the
+    # site-scoped "Sync Network Data" job needs a real object reference
+    # (ObjectVar), same as the tenant lookup above. Deliberately scoped
+    # to just this site's devices rather than the whole tenant: deploying
+    # one device previously re-synced EVERY device across every site for
+    # this tenant (confirmed via nautobot-worker logs -- 13 devices
+    # across 2 sites for a single new device), real, measured
+    # unnecessary load (one switch alone took 81s) for something that
+    # only changed one site.
+    site_name = site_config.get('site_name', '')
+    if not site_name:
+        response['sync'] = {'error': "No site_name in site_config -- cannot resolve site for sync"}
+        return jsonify(response)
+    sr = client.get('dcim/locations', params={'name': site_name, 'limit': 1})
+    site_results = sr.json().get('results', []) if sr.ok else []
+    if not site_results:
+        response['sync'] = {'error': f"Site '{site_name}' not found in Nautobot"}
+        return jsonify(response)
+    site_id = site_results[0]['id']
+
+    # Look up the site-scoped "Sync Network Data" Job's ID by name
+    jr = client.get('extras/jobs', params={'name': 'Sync Network Data', 'limit': 1})
     job_results = jr.json().get('results', []) if jr.ok else []
     if not job_results:
-        response['sync'] = {'error': "'Sync All Sites for Tenant' job not found -- is it registered?"}
+        response['sync'] = {'error': "'Sync Network Data' job not found -- is it registered?"}
         return jsonify(response)
     job_id = job_results[0]['id']
 
     run_resp = client.post(f'extras/jobs/{job_id}/run', {
         'data': {
             'tenant': tenant_id,
+            'site': site_id,
             'category': sync_category,
             'dry_run': False,
         }

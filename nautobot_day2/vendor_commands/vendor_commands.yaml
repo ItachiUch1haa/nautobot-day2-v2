@@ -388,12 +388,21 @@ access_points:
     # Fortinet FortiAP — direct SSH fallback
     # Used when FortiManager is unavailable
     # Note: Most FortiAP data comes via FortiManager API (preferred)
+    # IMPORTANT: a real FortiAP has no independently reachable SSH
+    # server (confirmed via a genuine TCP timeout against real hardware)
+    # -- it's managed entirely through its controlling FortiGate's
+    # wireless-controller function. The sync engine redirects this
+    # connection to the sibling firewall's own IP (see
+    # _find_site_firewall_ip() in sync_network_data.py) and this command
+    # is run AGAINST THE FIREWALL, not the AP -- the firewall reports
+    # per-AP status for every WTP it manages, which extract_facts()
+    # then parses to find this specific device's entry.
     netmiko_device_type : "fortinet"
     secrets_group       : "fortinet-ssh"
     disable_paging      : ""
     data_source         : "ssh"
     commands:
-      version           : "get system status"
+      version           : "get wireless-controller wtp-status"
       interfaces        : "get system interface"
       lldp_neighbors    : "diagnose lldprx neighbor summary"
       ap_status         : "get wireless-controller wtp"
