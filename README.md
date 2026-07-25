@@ -186,6 +186,11 @@ production cluster is configuration, not code:
   before they're part of a multi-server production picture — don't just
   lift-and-shift the single-server compose file's broker services as-is.
 
+**See `deploy/PRODUCTION_GUIDE.md`** for the full production topology:
+shared core cluster vs. per-tenant Agent Broker placement, OpenBao
+per-tenant policy setup, the onboarding/sync/troubleshooting workflows, and
+the production security checklist.
+
 ### Status — what's actually been verified
 
 - Bugs have been found and fixed via **live testing against real hardware**
