@@ -12,7 +12,7 @@ import json
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "onboarding"))
-from sync_network_data import resolve_vendor, get_yaml_block, resolve_creds, _aruba_central_get_token
+from sync_network_data import resolve_vendor, get_yaml_block, resolve_creds, _aruba_central_get_token, _find_site_firewall_ip
 
 from client import NautobotClient
 from openbao_client import fetch_openbao_secret
@@ -76,6 +76,13 @@ def get_device_context(device_name):
         if role_resp.ok:
             role_name = role_resp.json().get("name")
 
+    location_name = None
+    location = device.get("location") or {}
+    if location:
+        loc_resp = client.get_absolute(location["url"])
+        if loc_resp.ok:
+            location_name = loc_resp.json().get("name")
+
     return {
         "device_name": device_name,
         "tenant_name": tenant_name,
@@ -86,6 +93,7 @@ def get_device_context(device_name):
         "platform_slug": platform_slug,
         "role": role_name,
         "device_id": device["id"],
+        "location_name": location_name,
     }
 
 
@@ -169,7 +177,26 @@ def run_diagnostic_command(device_name, command):
     if not netmiko_device_type:
         raise Exception(f"NO_NETMIKO_TYPE: {section}/{yaml_key} has no netmiko_device_type and no api_type -- unsupported vendor block")
 
-    if not ctx.get("ip_address"):
+    # Redirect connection target for Fortinet AP fallback -- a real
+    # FortiAP has no independently reachable SSH server (confirmed
+    # against real hardware: a genuine TCP timeout). It is managed
+    # entirely through its controlling FortiGate. Mirrors the exact
+    # same fix already built into sync_network_data.py's sync_device()
+    # -- that fix was never applied to this broker dispatch path until
+    # now, meaning any agent trying to run a diagnostic command against
+    # a FortiAP through the broker would always fail this same way.
+    device_ip = ctx.get("ip_address")
+    if yaml_key == "fortinet_ap_ssh":
+        loc_name = ctx.get("location_name") or ""
+        fw_ip = _find_site_firewall_ip(loc_name, ctx["tenant_slug"]) if loc_name else ""
+        if fw_ip:
+            device_ip = fw_ip
+        else:
+            raise Exception(
+                f"No Fortinet firewall found at site '{loc_name}' to route FortiAP connection through"
+            )
+
+    if not device_ip:
         raise Exception(f"NO_IP: '{device_name}' has no primary IP set in Nautobot")
 
     username = creds.get("user")
@@ -193,7 +220,7 @@ def run_diagnostic_command(device_name, command):
 
     host = Host(
         name=device_name,
-        hostname=ctx["ip_address"],
+        hostname=device_ip,
         username=username,
         password=password,
         platform=netmiko_device_type,
