@@ -266,6 +266,18 @@ def _dispatch_api(device_name, api_type, creds, api_request, tenant_slug=''):
 
     method = api_request.get("method", "GET").upper()
     path = api_request["path"]
+    # Auto-substitute {org_id} so an external agent never needs to know
+    # or paste the real org UUID -- it's already resolved from OpenBao
+    # via creds, the same way api_get_data() already does internally
+    # for scheduled syncs. This was previously only a sync-engine
+    # convenience; ad-hoc agent calls through the broker had no such
+    # substitution at all, meaning every agent call required the raw
+    # UUID hardcoded in the path.
+    if "{org_id}" in path:
+        org_id = creds.get("org_id", "")
+        if not org_id:
+            raise Exception(f"NO_ORG_ID: '{device_name}' has no org_id in its resolved credentials")
+        path = path.replace("{org_id}", org_id)
 
     def _api_task(task):
         import requests as _requests
