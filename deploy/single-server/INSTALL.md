@@ -418,7 +418,7 @@ curl -sf http://127.0.0.1:8081/health && echo " — wizard OK"
 
 ```bash
 docker compose exec upload-app python3 -c "
-from openbao_client import fetch_openbao_secret
+from nautobot_day2.openbao_client import fetch_openbao_secret
 print(fetch_openbao_secret('smoketest', 'ssh'))
 "
 ```
