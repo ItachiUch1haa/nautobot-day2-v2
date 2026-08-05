@@ -246,7 +246,7 @@ credential rotation is the only one that can write, per the design
 documented in `openbao_client.py`:
 
 ```bash
-docker compose exec openbao sh -c "BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=$ROOT_TOKEN bao policy write day2-sync-engine-policy -" <<'EOF'
+docker compose exec -T openbao sh -c "BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=$ROOT_TOKEN bao policy write day2-sync-engine-policy -" <<'EOF'
 path "kv/data/tenants/*" {
   capabilities = ["read", "list"]
 }
@@ -255,7 +255,7 @@ path "kv/metadata/tenants/*" {
 }
 EOF
 
-docker compose exec openbao sh -c "BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=$ROOT_TOKEN bao policy write day2-broker-policy -" <<'EOF'
+docker compose exec -T openbao sh -c "BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=$ROOT_TOKEN bao policy write day2-broker-policy -" <<'EOF'
 path "kv/data/tenants/*" {
   capabilities = ["read", "list"]
 }
@@ -264,7 +264,7 @@ path "kv/metadata/tenants/*" {
 }
 EOF
 
-docker compose exec openbao sh -c "BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=$ROOT_TOKEN bao policy write day2-credential-refresher-policy -" <<'EOF'
+docker compose exec -T openbao sh -c "BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=$ROOT_TOKEN bao policy write day2-credential-refresher-policy -" <<'EOF'
 path "kv/data/tenants/*" {
   capabilities = ["read", "create", "update"]
 }
