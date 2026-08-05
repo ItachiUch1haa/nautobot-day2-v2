@@ -34,7 +34,8 @@ services:
     volumes:
       - nautobot_media:/opt/nautobot/media
       - tenants_data:/opt/nautobot/nautobot_day2_tenants
-    entrypoint: ["chown", "-R", "nautobot:nautobot", "/opt/nautobot/media", "/opt/nautobot/nautobot_day2_tenants"]
+      - openbao_data:/openbao/data
+    entrypoint: ["sh", "-c", "chown -R nautobot:nautobot /opt/nautobot/media /opt/nautobot/nautobot_day2_tenants && chown -R 100:1000 /openbao/data"]
     restart: "no"
 
   nautobot:
@@ -203,6 +204,9 @@ services:
   openbao:
     image: openbao/openbao:latest
     command: ["server"]
+    depends_on:
+      volume-init:
+        condition: service_completed_successfully
     cap_add:
       - IPC_LOCK
     environment:
@@ -221,7 +225,7 @@ services:
       - openbao_data:/openbao/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O-", "http://127.0.0.1:8200/v1/sys/health?standbyok=true&sealedcode=200"]
+      test: ["CMD", "wget", "-q", "-O-", "http://127.0.0.1:8200/v1/sys/health?standbyok=true"]
       interval: 10s
       timeout: 5s
       retries: 10

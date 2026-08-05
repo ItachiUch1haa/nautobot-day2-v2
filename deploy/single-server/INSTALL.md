@@ -152,15 +152,27 @@ docker compose up -d postgres redis openbao
 docker compose ps
 ```
 
-Wait until **all three** show `healthy` in the STATUS column before
-continuing:
+Wait until **Postgres and Redis** show `healthy`. **OpenBao will correctly
+stay `unhealthy` at this point — that's expected, not a bug.** Its
+healthcheck deliberately fails while OpenBao is sealed (the default state
+on every fresh volume and after every restart), specifically so that
+`upload-app`, `agent-broker`, and `agent-broker-mcp` — which all depend on
+OpenBao being genuinely usable, not just running — won't start against an
+unusable OpenBao. It will flip to `healthy` automatically, with no restart
+needed, the moment Phase 8 unseals it.
 
 ```bash
-watch docker compose ps
+watch docker compose ps   # Ctrl-C once postgres/redis are healthy
 ```
 
-If OpenBao doesn't go healthy, it's almost always the container failing to
-bind `0.0.0.0:8200` — check `docker compose logs openbao`.
+If OpenBao's container isn't even *running* (not just unhealthy — actually
+exited or restarting), that's the real problem to chase: check
+`docker compose logs openbao` for a bind failure on `0.0.0.0:8200` or a
+storage permission error (`mkdir /openbao/data/core: permission denied`
+means the `volume-init` service didn't get a chance to `chown` the
+`openbao_data` volume before OpenBao tried to write to it — confirm
+`volume-init` shows `Exited (0)` in `docker compose ps -a`, not a
+non-zero exit code).
 
 ## Phase 8 — initialize and unseal OpenBao, create its AppRoles, finish `.env`
 
