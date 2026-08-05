@@ -488,6 +488,37 @@ This is a read-only check across the onboarding pipeline's required
 scripts/services — run it any time you're unsure whether the environment
 is in a good state before onboarding a real customer.
 
+**Reading the output on this Docker Compose deployment:** `preflight_check.py`
+predates the Docker Compose stack and still checks for a bare-metal/systemd
+deployment. On this install, expect these specific checks to show `❌` even
+when everything is genuinely fine — they're structurally inapplicable to
+containers, not real failures:
+
+- `nautobot` / `nautobot-worker` / `nautobot-upload` / `nautobot-vendor-test`
+  under "Systemd Services" — this stack has no `systemd`, so
+  `systemctl is-active` always fails inside a container. Use
+  `docker compose ps` instead to check these.
+- `Upload app (8081)` / `Vendor test app (8082)` under "Web Apps" — these
+  check `localhost:<port>` from *inside the `nautobot` container's own
+  network namespace*, not the host, so they fail even when `upload-app`
+  and `agent-broker` are healthy on the Docker network. (Also note: on
+  this stack, port 8082 is the **Agent Broker**, not a "vendor test app"
+  — that label is stale.) Use the Phase 11/12 health checks instead
+  (`curl http://127.0.0.1:8081/health` / `:8082/health` from the host, or
+  `docker compose ps`).
+- `manifests dir exists` — a directory the script expects at
+  `onboarding/manifests/`; harmless if missing, it gets created
+  automatically the first time something writes a manifest there (as this
+  same preflight run just did, if you check again).
+- `At least one tenant .env` — expected to fail until you've onboarded at
+  least one tenant (Phase 9 of the wizard flow); not a sign of anything
+  broken on a fresh install.
+
+The checks that **do** matter here and should be `✅`: API reachable, API
+token valid, all Base Objects counts (Phase 14), all Required Scripts
+present, and Vendor Commands YAML exists. If any of those show `❌`,
+that is a real problem worth chasing.
+
 ## Phase 16 — first sync test, safely
 
 Keep `SIMULATED = True` in `nautobot_day2/onboarding/sync_network_data.py`
