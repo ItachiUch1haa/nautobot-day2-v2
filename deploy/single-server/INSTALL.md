@@ -521,12 +521,29 @@ that is a real problem worth chasing.
 
 ## Phase 16 — first sync test, safely
 
-Keep `SIMULATED = True` in `nautobot_day2/onboarding/sync_network_data.py`
-for the very first sync run — it exercises dispatch → parallel Celery tasks
-→ summary log entry without touching a real device. Trigger "Sync Network
-Data" from the Jobs UI, watch its log for the "Dispatched N device sync
-task(s)..." line followed by the summary a short while later, then only
-flip `SIMULATED` off once that round-trip is confirmed working.
+**⚠️ `SIMULATED = True` currently does nothing for any real vendor.**
+`sync_network_data.py`'s `SIMULATED_OVERRIDE` dict hardcodes **every single
+platform it currently supports** (`aruba_os`, `aruba_aoscx`, `juniper_junos`,
+`cisco_iosxe`, `fortios`, all 15 entries) to `False` — meaning live SSH/API
+dispatch happens regardless of the global flag. Verified this directly: a
+sync against a device with an unreachable test IP (`10.20.1.1`, nothing
+listening) produced a genuine Netmiko/paramiko SSH connection attempt from
+the Celery worker, not a simulated one — it only "failed safely" because
+the IP didn't exist, not because `SIMULATED` protected it. **If the device
+you use for this first test has a real, reachable IP on your network, this
+will run live commands against it.**
+
+For a first test that's actually safe regardless of that override table:
+use a device with a syntactically valid but genuinely unreachable IP (as
+above) so the worst case is a clean timeout, not a real command reaching
+real hardware. Do not point this first test at production equipment.
+
+Trigger "Sync Network Data" or "Sync All Sites for Tenant" from the Jobs
+UI, watch its log for the "Dispatched N device sync task(s)..." line, then
+check `docker compose logs nautobot-worker` a few seconds later for the
+`sync_device_task` / `sync_summary_callback` pair completing — that
+confirms the dispatch → Celery → summary round-trip works, independent of
+whether the device itself was reachable.
 
 ## Phase 17 — final install checklist (all 9 services)
 
