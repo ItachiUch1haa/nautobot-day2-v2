@@ -864,9 +864,21 @@ function deploySite() {
 
     if (sync) {
       if (sync.triggered) {
-        html += "<div class=\"alert alert-ok\">Sync job triggered &mdash; status: " +
-          (sync.job_result && sync.job_result.job_result ? sync.job_result.job_result.status.label : "PENDING") +
-          "</div>";
+        var jr = sync.job_result && sync.job_result.job_result;
+        var jrId = jr && jr.id;
+        var initialStatus = jr && jr.status ? jr.status.label : "PENDING";
+        if (jrId) {
+          var jobResultUrl = window.location.protocol + "//" + window.location.hostname + ":8080/extras/job-results/" + jrId + "/";
+          html += "<div class=\"alert alert-ok\">Sync job triggered &mdash; initial status: " + initialStatus +
+            ". This page does not auto-update &mdash; " +
+            "<a href=\"" + jobResultUrl + "\" target=\"_blank\">watch the live job log in Nautobot</a> " +
+            "to see whether it actually completed." +
+            "</div>";
+        } else {
+          html += "<div class=\"alert alert-ok\">Sync job triggered &mdash; status: " + initialStatus +
+            " (no job ID returned to link to &mdash; check the Jobs tab in Nautobot directly)." +
+            "</div>";
+        }
       } else {
         html += "<div class=\"alert alert-warn\">Sync not triggered: " + (sync.error || "unknown reason") + "</div>";
       }
