@@ -1,0 +1,121 @@
+{
+  "title": "Nautobot Day2 - Command Execution Flow",
+  "uid": "nautobot-day2-flow",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "tags": ["nautobot", "agent-broker", "day2"],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Service Up/Down (all 9)",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 0 },
+      "targets": [
+        { "expr": "up{job=~\"nautobot|postgres|redis|openbao|agent-broker|agent-broker-mcp\"}", "legendFormat": "{{job}}" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [ { "value": 0, "color": "red" }, { "value": 1, "color": "green" } ] }
+        }
+      },
+      "options": { "textMode": "value_and_name", "colorMode": "background" }
+    },
+    {
+      "id": 2,
+      "title": "agent-broker / mcp - request rate by outcome",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "targets": [
+        { "expr": "sum(rate(broker_command_requests_total[5m])) by (job, outcome)", "legendFormat": "{{job}} - {{outcome}}" }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "agent-broker command latency (p50/p95/p99)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "targets": [
+        { "expr": "histogram_quantile(0.5, sum(rate(broker_command_duration_seconds_bucket[5m])) by (le, job))", "legendFormat": "{{job}} p50" },
+        { "expr": "histogram_quantile(0.95, sum(rate(broker_command_duration_seconds_bucket[5m])) by (le, job))", "legendFormat": "{{job}} p95" },
+        { "expr": "histogram_quantile(0.99, sum(rate(broker_command_duration_seconds_bucket[5m])) by (le, job))", "legendFormat": "{{job}} p99" }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Per-device command outcome (last 1h)",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "targets": [
+        { "expr": "sum(increase(broker_command_requests_total[1h])) by (device, device_type, outcome)", "format": "table", "instant": true }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "OpenBao seal status",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 14 },
+      "targets": [
+        { "expr": "vault_core_unsealed", "legendFormat": "unsealed" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "SEALED", "color": "red" }, "1": { "text": "UNSEALED", "color": "green" } } }
+          ]
+        }
+      },
+      "options": { "colorMode": "background" }
+    },
+    {
+      "id": 6,
+      "title": "Nautobot / Postgres / Redis up",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 14 },
+      "targets": [
+        { "expr": "up{job=\"nautobot\"}", "legendFormat": "nautobot" },
+        { "expr": "pg_up", "legendFormat": "postgres" },
+        { "expr": "redis_up", "legendFormat": "redis" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+          ]
+        }
+      },
+      "options": { "colorMode": "background" }
+    },
+    {
+      "id": 7,
+      "title": "OpenBao seal-status probe / upload-app reachability",
+      "type": "state-timeline",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 22 },
+      "targets": [
+        { "expr": "probe_success{job=~\"blackbox-openbao-health|blackbox-upload-app\"}", "legendFormat": "{{job}}" }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Celery worker (nautobot-worker) container health",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 22 },
+      "targets": [
+        { "expr": "container_last_seen{name=~\"nautobot-worker.*\"}", "legendFormat": "{{name}} last seen" }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Container CPU / memory (all services)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 30 },
+      "targets": [
+        { "expr": "rate(container_cpu_usage_seconds_total{name=~\"nautobot.*|agent-broker.*|openbao.*|postgres.*|redis.*\"}[5m])", "legendFormat": "{{name}} cpu" }
+      ]
+    }
+  ]
+}

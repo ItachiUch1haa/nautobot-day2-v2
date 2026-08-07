@@ -1,0 +1,137 @@
+# Overlay compose file — merge with your existing stack:
+#   docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
+#
+# Assumes it lives in ~/nautobot-day2-v2/deploy/single-server/monitoring/
+# and is launched from the parent dir so relative paths below resolve.
+# Adjust container names under `networks` / scrape targets in
+# prometheus/prometheus.yml if your existing network name differs
+# (check with: docker network ls).
+
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: nautobot-day2-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+      - "--web.enable-lifecycle"
+    ports:
+      - "9090:9090"
+    networks:
+      - default
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: nautobot-day2-alertmanager
+    restart: unless-stopped
+    volumes:
+      - ./monitoring/prometheus/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports:
+      - "9093:9093"
+    networks:
+      - default
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: nautobot-day2-grafana
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    networks:
+      - default
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: nautobot-day2-node-exporter
+    restart: unless-stopped
+    pid: host
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--path.rootfs=/rootfs"
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
+    ports:
+      - "9100:9100"
+    networks:
+      - default
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: nautobot-day2-cadvisor
+    restart: unless-stopped
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    ports:
+      - "9280:8080"
+    networks:
+      - default
+
+  blackbox-exporter:
+    image: prom/blackbox-exporter:latest
+    container_name: nautobot-day2-blackbox
+    restart: unless-stopped
+    volumes:
+      - ./monitoring/blackbox/blackbox.yml:/etc/blackbox_exporter/config.yml:ro
+    command:
+      - "--config.file=/etc/blackbox_exporter/config.yml"
+    ports:
+      - "9115:9115"
+    networks:
+      - default
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: nautobot-day2-postgres-exporter
+    restart: unless-stopped
+    env_file:
+      - ./monitoring/.env   # DATA_SOURCE_NAME goes here — see .env.example, not committed to git
+    ports:
+      - "9187:9187"
+    networks:
+      - default
+
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: nautobot-day2-redis-exporter
+    restart: unless-stopped
+    env_file:
+      - ./monitoring/.env   # REDIS_ADDR (and REDIS_PASSWORD if set) goes here
+    ports:
+      - "9121:9121"
+    networks:
+      - default
+
+volumes:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  default:
+    external: true
+    # Confirmed via `docker network ls` on the remote host on 2026-08-06.
+    name: nautobot-day2-test_default

@@ -10,16 +10,40 @@ Usage:
 """
 import sys
 import os
+import time
+from starlette.requests import Request
+from starlette.responses import PlainTextResponse
+from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 
 BROKER_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BROKER_DIR)
 sys.path.insert(0, os.path.dirname(BROKER_DIR))
 sys.path.insert(0, os.path.join(os.path.dirname(BROKER_DIR), "onboarding"))
-
 from core import get_device_context, run_diagnostic_command
 from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("nautobot-day2-agent-broker", host="0.0.0.0", port=8090)
+
+# --- Prometheus instrumentation --------------------------------------------
+# Same metric names as api_server.py's, distinguished by the "job" label
+# Prometheus itself attaches per scrape target — lets the Grafana dashboard
+# sum across both interfaces or split by job as needed.
+BROKER_REQUESTS = Counter(
+    "broker_command_requests_total",
+    "Agent Broker MCP tool calls by endpoint/device/outcome",
+    ["endpoint", "device", "outcome"],
+)
+BROKER_DURATION = Histogram(
+    "broker_command_duration_seconds",
+    "Agent Broker MCP tool call duration by endpoint",
+    ["endpoint"],
+    buckets=(0.5, 1, 2, 5, 10, 20, 30, 60, 120),
+)
+
+
+@mcp.custom_route("/metrics", methods=["GET"])
+async def metrics(request: Request) -> PlainTextResponse:
+    return PlainTextResponse(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @mcp.tool()
@@ -29,10 +53,16 @@ def get_device_info(device_name: str) -> dict:
     secrets group. Read-only — does not fetch credentials or connect to
     the device.
     """
+    start = time.time()
     try:
-        return get_device_context(device_name)
+        result = get_device_context(device_name)
+        BROKER_REQUESTS.labels(endpoint="get_device_info", device=device_name, outcome="ok").inc()
+        return result
     except Exception as e:
+        BROKER_REQUESTS.labels(endpoint="get_device_info", device=device_name, outcome="error").inc()
         return {"error": str(e)}
+    finally:
+        BROKER_DURATION.labels(endpoint="get_device_info").observe(time.time() - start)
 
 
 @mcp.tool()
@@ -44,11 +74,16 @@ def run_command(device_name: str, command: str) -> dict:
     vendor's API for cloud-managed devices, once supported). No command
     allowlist is enforced — any command string will be attempted as-is.
     """
+    start = time.time()
     try:
         output = run_diagnostic_command(device_name, command)
+        BROKER_REQUESTS.labels(endpoint="run_command", device=device_name, outcome="ok").inc()
         return {"device": device_name, "command": command, "output": output}
     except Exception as e:
+        BROKER_REQUESTS.labels(endpoint="run_command", device=device_name, outcome="error").inc()
         return {"device": device_name, "command": command, "error": str(e)}
+    finally:
+        BROKER_DURATION.labels(endpoint="run_command").observe(time.time() - start)
 
 
 if __name__ == "__main__":
