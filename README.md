@@ -4,6 +4,19 @@ Customer/site onboarding, day-2 network data sync (SSH + vendor cloud APIs),
 a web onboarding wizard, and an Agent Broker for ad-hoc device troubleshooting
 — for multi-vendor MSP networks, packaged as an installable Nautobot App.
 
+## Documentation
+
+Deeper operational docs live in [`docs/`](docs/README.md):
+
+| Doc | Covers |
+|---|---|
+| [`docs/01-ONBOARDING-GUIDE.md`](docs/01-ONBOARDING-GUIDE.md) | Step-by-step guide for engineers onboarding a new customer or site — web wizard, ChatOps, and CLI paths, plus common failure points. |
+| [`docs/02-COMPONENTS.md`](docs/02-COMPONENTS.md) | Every component grouped by function, and exactly what it's responsible for. |
+| [`docs/03-ARCHITECTURE.md`](docs/03-ARCHITECTURE.md) | Diagrams of the system layout and the three working flows: onboarding, day-2 sync, and Agent Broker troubleshooting. |
+| [`docs/04-COMPONENT-PATHS.md`](docs/04-COMPONENT-PATHS.md) | Exact file paths, ports, queues, and configuration/env vars for every component. |
+| [`docs/05-MONITORING.md`](docs/05-MONITORING.md) | What to monitor per component, suggested log aggregation, and alert priorities. |
+| [`docs/06-GAPS-AND-RECOMMENDATIONS.md`](docs/06-GAPS-AND-RECOMMENDATIONS.md) | Security gaps (notably the Agent Broker's current lack of an allowlist/auth), missing tests, and other operational risks not otherwise called out in one place. |
+
 ## Layout
 
 ```

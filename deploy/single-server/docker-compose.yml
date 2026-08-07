@@ -34,7 +34,8 @@ services:
     volumes:
       - nautobot_media:/opt/nautobot/media
       - tenants_data:/opt/nautobot/nautobot_day2_tenants
-    entrypoint: ["chown", "-R", "nautobot:nautobot", "/opt/nautobot/media", "/opt/nautobot/nautobot_day2_tenants"]
+      - openbao_data:/openbao/data
+    entrypoint: ["sh", "-c", "chown -R nautobot:nautobot /opt/nautobot/media /opt/nautobot/nautobot_day2_tenants && chown -R 100:1000 /openbao/data"]
     restart: "no"
 
   nautobot:
@@ -62,6 +63,7 @@ services:
       NAUTOBOT_SUPERUSER_EMAIL: ${NAUTOBOT_SUPERUSER_EMAIL:-admin@example.com}
       NAUTOBOT_SUPERUSER_PASSWORD: ${NAUTOBOT_SUPERUSER_PASSWORD:-admin}
       NAUTOBOT_SUPERUSER_API_TOKEN: ${NAUTOBOT_SUPERUSER_API_TOKEN:-0123456789abcdef0123456789abcdef01234567}
+      NAUTOBOT_TOKEN: ${NAUTOBOT_SUPERUSER_API_TOKEN:-0123456789abcdef0123456789abcdef01234567}
       NAUTOBOT_DAY2_TENANTS_DIR: /opt/nautobot/nautobot_day2_tenants
       BAO_ADDR: "http://openbao:8200"
       BAO_ROLE_ID: "b85e4c02-4b8d-48f4-2e63-4f3aaf2fb290"
@@ -203,6 +205,9 @@ services:
   openbao:
     image: openbao/openbao:latest
     command: ["server"]
+    depends_on:
+      volume-init:
+        condition: service_completed_successfully
     cap_add:
       - IPC_LOCK
     environment:
@@ -221,7 +226,7 @@ services:
       - openbao_data:/openbao/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O-", "http://127.0.0.1:8200/v1/sys/health?standbyok=true&sealedcode=200"]
+      test: ["CMD", "wget", "-q", "-O-", "http://127.0.0.1:8200/v1/sys/health?standbyok=true"]
       interval: 10s
       timeout: 5s
       retries: 10
