@@ -1,0 +1,105 @@
+groups:
+  - name: nautobot-day2-flow
+    rules:
+
+      # ---- Generic: any scraped service goes down -----------------------
+      - alert: ServiceDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} ({{ $labels.instance }}) is down"
+          description: "Prometheus has failed to scrape {{ $labels.job }} for 2+ minutes. Check `docker compose logs {{ $labels.service }}` and `docker compose ps`."
+
+      # ---- agent-broker REST API -----------------------------------------
+      - alert: BrokerAPIHighErrorRate
+        expr: |
+          sum(rate(broker_command_requests_total{job="agent-broker",outcome="error"}[5m]))
+          /
+          sum(rate(broker_command_requests_total{job="agent-broker"}[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "agent-broker error rate above 10%"
+          description: "More than 10% of /diagnose calls are failing over the last 5m. Check credential resolution (OpenBao) and device reachability first."
+
+      - alert: BrokerAPIHighLatency
+        expr: |
+          histogram_quantile(0.95, sum(rate(broker_command_duration_seconds_bucket[5m])) by (le)) > 20
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "agent-broker p95 latency > 20s"
+          description: "Command dispatch is slow — check SSH session setup time to devices (Netmiko) and Nautobot device lookups."
+
+      # ---- agent-broker MCP server ----------------------------------------
+      - alert: BrokerMCPHighErrorRate
+        expr: |
+          sum(rate(broker_command_requests_total{job="agent-broker-mcp",outcome="error"}[5m]))
+          /
+          sum(rate(broker_command_requests_total{job="agent-broker-mcp"}[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "agent-broker-mcp error rate above 10%"
+
+      # ---- Nautobot ---------------------------------------------------------
+      - alert: NautobotUnreachable
+        expr: up{job="nautobot"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Nautobot is unreachable"
+          description: "Device lookups (get_device_context) will fail for every command until Nautobot recovers."
+
+      # ---- Postgres / Redis (Nautobot dependencies) --------------------------
+      - alert: PostgresDown
+        expr: pg_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Nautobot's Postgres database is down"
+
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Nautobot's Redis cache/queue is down"
+
+      # ---- OpenBao (credential store) ----------------------------------------
+      - alert: OpenBaoSealed
+        expr: vault_core_unsealed == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "OpenBao is SEALED — no credential can be resolved"
+          description: "resolve_creds() will fail for every device until OpenBao is unsealed. This blocks the entire command-execution flow."
+
+      - alert: OpenBaoUnreachable
+        expr: up{job="openbao"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "OpenBao is unreachable"
+
+      # ---- upload-app ----------------------------------------------------------
+      - alert: UploadAppUnreachable
+        expr: probe_success{job="blackbox-upload-app"} == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "upload-app is unreachable on :8081"
+
+      # Deliberately no rules for real network devices or cloud controllers —
+      # out of scope, see prometheus.yml.

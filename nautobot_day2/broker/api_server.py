@@ -11,27 +11,55 @@ Usage:
 """
 import sys
 import os
+import time
 import argparse
 from flask import Flask, request, jsonify
+from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 
 BROKER_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BROKER_DIR)
 sys.path.insert(0, os.path.dirname(BROKER_DIR))
 sys.path.insert(0, os.path.join(os.path.dirname(BROKER_DIR), "onboarding"))
-
 from core import get_device_context, run_diagnostic_command
 
 app = Flask(__name__)
+
+# --- Prometheus instrumentation --------------------------------------------
+# Deliberately wraps the REST boundary, not core.py -- core.py's dispatch
+# logic (Nornir/Netmiko/FortiAP-redirect/API-vendor branching) stays
+# untouched. "endpoint" + "outcome" are low-cardinality; "device" is
+# bounded by the size of this lab's device inventory.
+BROKER_REQUESTS = Counter(
+    "broker_command_requests_total",
+    "Agent Broker REST requests by endpoint/device/outcome",
+    ["endpoint", "device", "outcome"],
+)
+BROKER_DURATION = Histogram(
+    "broker_command_duration_seconds",
+    "Agent Broker REST request duration by endpoint",
+    ["endpoint"],
+    buckets=(0.5, 1, 2, 5, 10, 20, 30, 60, 120),
+)
+
+
+@app.route("/metrics")
+def metrics():
+    return generate_latest(), 200, {"Content-Type": CONTENT_TYPE_LATEST}
 
 
 @app.route("/device/<device_name>", methods=["GET"])
 def device_info(device_name):
     """Read-only device metadata lookup — no credential fetch, no dispatch."""
+    start = time.time()
     try:
         ctx = get_device_context(device_name)
+        BROKER_REQUESTS.labels(endpoint="device_info", device=device_name, outcome="ok").inc()
         return jsonify(ctx)
     except Exception as e:
+        BROKER_REQUESTS.labels(endpoint="device_info", device=device_name, outcome="error").inc()
         return jsonify({"error": str(e)}), 404
+    finally:
+        BROKER_DURATION.labels(endpoint="device_info").observe(time.time() - start)
 
 
 @app.route("/diagnose", methods=["POST"])
@@ -44,15 +72,18 @@ def diagnose():
     data = request.get_json(silent=True) or {}
     device_name = data.get("device")
     command = data.get("command")
-
     if not device_name or not command:
         return jsonify({"error": "MISSING_FIELDS: both 'device' and 'command' are required"}), 400
-
+    start = time.time()
     try:
         output = run_diagnostic_command(device_name, command)
+        BROKER_REQUESTS.labels(endpoint="diagnose", device=device_name, outcome="ok").inc()
         return jsonify({"device": device_name, "command": command, "output": output})
     except Exception as e:
+        BROKER_REQUESTS.labels(endpoint="diagnose", device=device_name, outcome="error").inc()
         return jsonify({"device": device_name, "command": command, "error": str(e)}), 500
+    finally:
+        BROKER_DURATION.labels(endpoint="diagnose").observe(time.time() - start)
 
 
 @app.route("/health")

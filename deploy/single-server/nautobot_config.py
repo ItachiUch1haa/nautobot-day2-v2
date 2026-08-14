@@ -11,6 +11,7 @@ import os
 
 from nautobot.core.settings import *  # noqa: F401,F403
 from nautobot.core.settings_funcs import is_truthy
+METRICS_ENABLED = is_truthy(os.environ.get("NAUTOBOT_METRICS_ENABLED", "true"))
 
 SECRET_KEY = os.environ.get("NAUTOBOT_SECRET_KEY")
 

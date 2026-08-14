@@ -1,0 +1,140 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+rule_files:
+  - "alert_rules.yml"
+
+scrape_configs:
+
+  # --- Prometheus monitoring itself -----------------------------------
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # --- Host + container resource metrics -------------------------------
+  - job_name: "node-exporter"
+    static_configs:
+      - targets: ["node-exporter:9100"]
+
+  - job_name: "cadvisor"
+    static_configs:
+      - targets: ["cadvisor:8080"]
+
+  # =====================================================================
+  # THE 9 SERVICES — confirmed via `docker compose config --services` +
+  # `docker compose ps` on the remote box on 2026-08-06:
+  #   postgres, redis, volume-init, nautobot, openbao, agent-broker-mcp,
+  #   nautobot-worker, agent-broker, upload-app
+  # Compose gives every service its short name as a DNS alias on the
+  # project network, so target names below match the service names exactly
+  # — no container-ID lookups needed. volume-init is a one-shot init
+  # container (runs once, exits) and is intentionally not scraped.
+  # =====================================================================
+
+  # 1. Nautobot web/API — requires django-prometheus enabled (see README).
+  #    Until that's enabled, /metrics returns 404 and Prometheus will just
+  #    show this job as down — harmless, but won't self-heal until step 5.
+  - job_name: "nautobot"
+    metrics_path: /metrics/
+    scrape_protocols: [PrometheusText0.0.4]
+    static_configs:
+      - targets: ["nautobot:8080"]
+        labels: {service: "nautobot", role: "device-source-of-truth"}
+
+  # 2. Celery worker (nautobot-worker) — no native /metrics; watched via
+  #    cAdvisor container-up/CPU/mem. No separate beat/scheduler container
+  #    exists on this host (confirmed from `docker compose ps`) — if beat
+  #    runs inside nautobot-worker via a supervisor process, cAdvisor still
+  #    catches the container dying, just not a stuck-but-alive beat loop.
+
+  # 3. Postgres (Nautobot DB)
+  - job_name: "postgres"
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+        labels: {service: "postgres", role: "nautobot-db"}
+
+  # 4. Redis (Nautobot cache/queue)
+  - job_name: "redis"
+    static_configs:
+      - targets: ["redis-exporter:9121"]
+        labels: {service: "redis", role: "nautobot-cache"}
+
+  # 5. OpenBao (credential store) — real /metrics needs the telemetry
+  #    stanza enabled (see README step 5). Until then, sys/health below
+  #    (unauthenticated on Vault-compatible APIs) gives seal-status for
+  #    free with zero config changes — that's the immediate win.
+  - job_name: "openbao"
+    metrics_path: /v1/sys/metrics
+    params:
+      format: ["prometheus"]
+    static_configs:
+      - targets: ["openbao:8200"]
+        labels: {service: "openbao", role: "credential-store"}
+
+  - job_name: "blackbox-openbao-health"
+    metrics_path: /probe
+    params:
+      module: [http_2xx_tls]
+    static_configs:
+      - targets: ["http://openbao:8200/v1/sys/health"]
+        labels: {service: "openbao", check: "seal-status-no-instrumentation-needed"}
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  # 6. agent-broker REST API :8082 — real service name is "agent-broker"
+  #    (my first guess of "agent-broker-api" was wrong — corrected here).
+  #    Add /metrics per instrumentation/metrics_snippet.py.
+  - job_name: "agent-broker"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["agent-broker:8082"]
+        labels: {service: "agent-broker", role: "rest-api"}
+
+  # 7. agent-broker MCP server :8090 — add /metrics alongside the MCP endpoint
+  - job_name: "agent-broker-mcp"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["agent-broker-mcp:8090"]
+        labels: {service: "agent-broker-mcp", role: "mcp-server"}
+
+  # 8. core.py / Nornir dispatch — shared logic inside #6 and #7, exposed as
+  #    broker_command_* metrics on whichever of the two /metrics you scrape
+  #    (same target as agent-broker above; see metrics_snippet.py)
+
+  # 9. upload-app :8081 — discovered from `docker compose ps`, wasn't in the
+  #    original diagram. Generic container-up scrape for now via blackbox
+  #    TCP check below; tell me what it does and I'll add real instrumentation.
+  - job_name: "blackbox-upload-app"
+    metrics_path: /probe
+    params:
+      module: [tcp_connect_22]   # plain TCP connect, works for any port
+    static_configs:
+      - targets: ["upload-app:8081"]
+        labels: {service: "upload-app", check: "tcp-up-only-confirm-purpose"}
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  # Out of scope by design: this stack monitors Nautobot and the backend
+  # apps (onboarding + command-execution broker), not the network devices
+  # or cloud controllers those apps talk to on demand. Those aren't ours
+  # to monitor — they're not even resolvable by hostname from inside this
+  # stack (confirmed: agent-broker itself gets NXDOMAIN on "ASW-Day2-A",
+  # because Nautobot resolves device IPs internally at dispatch time, not
+  # via DNS). If that ever becomes a requirement, it'd be a separate NMS
+  # concern, not an addition to this app-monitoring stack.

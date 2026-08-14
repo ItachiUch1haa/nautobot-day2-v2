@@ -156,3 +156,33 @@ during an incident requires a code change and redeploy, not a config
 toggle. Consider promoting this to an environment-variable-driven
 override if "temporarily fake this one vendor's sync without a
 deploy" ever becomes an operational need.
+
+## 12. Async sync Jobs never update their own JobResult status — always shows PENDING
+
+`SyncNetworkData` and `SyncAllSites`'s `run()` methods return immediately
+after dispatching device sync tasks to Celery (deliberately — they don't
+block waiting on potentially hundreds of devices). The real per-device
+work happens in `sync_device_task`, and `sync_summary_callback` (a Celery
+chord callback) writes a summary line into the JobResult's *log* once
+every device task in the batch finishes.
+
+**What's missing: nothing ever updates the JobResult's `status` field
+itself.** Verified directly — a job whose devices had all long since
+finished (confirmed via `sync_summary_callback` succeeding in the worker
+logs, with a summary log entry present in the JobResult's own log) still
+showed `Pending` in the Job Results list days later, with no indication
+in the UI that anything had actually happened. `sync_summary_callback`
+already receives `job_result_id` and could set
+`job_result.status = <success|failure>` (plus `date_done`) once it has
+the final results, but currently doesn't.
+
+Practically: nothing is stuck or leaking resources (Celery's own `inspect
+active` correctly shows empty once work is done), so this isn't a
+performance or latency problem. It's an observability gap — anyone
+relying on the Job Results list (or the wizard's Deploy step, which links
+to this same page) to know whether a sync succeeded will see `Pending`
+forever and have to cross-reference the Job's own log entries or the
+Celery worker's logs directly to find out. Worth fixing by having
+`sync_summary_callback` explicitly close out the JobResult's status once
+the chord completes, rather than leaving it to whatever Nautobot's
+own job-runner set at dispatch time.
