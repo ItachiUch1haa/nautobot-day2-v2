@@ -5,7 +5,46 @@ diagnostic access). Kept as a single shared function so a fix or change
 in one place propagates to both consumers rather than drifting apart.
 """
 import os
+import time
 import requests
+
+# Shared connection pool for all OpenBao calls (login + KV reads/writes) --
+# previously every call used bare requests.put/get/post with no session, a
+# fresh TCP connection each time.
+_session = requests.Session()
+
+_TOKEN_CACHE = {}
+# In-process cache: (bao_addr, role_id) -> {"client_token":, "expires_at":}.
+# Mirrors the same caching pattern already used for Aruba Central OAuth
+# tokens in sync_network_data.py's _ARUBA_TOKEN_CACHE -- per-process only,
+# not shared across agent-broker / agent-broker-mcp / nautobot-worker
+# containers, but it eliminates the common case (a fresh AppRole login on
+# every single secret fetch) within one running process/worker.
+
+
+def _openbao_login(bao_addr, role_id, secret_id):
+    cache_key = (bao_addr, role_id)
+    cached = _TOKEN_CACHE.get(cache_key)
+    if cached and cached["expires_at"] > time.time() + 30:
+        return cached["client_token"]
+
+    login_resp = _session.put(
+        f"{bao_addr}/v1/auth/approle/login",
+        json={"role_id": role_id, "secret_id": secret_id},
+        timeout=10,
+    )
+    login_resp.raise_for_status()
+    auth = login_resp.json()["auth"]
+    client_token = auth["client_token"]
+    lease_duration = auth.get("lease_duration", 0)
+    if lease_duration:
+        _TOKEN_CACHE[cache_key] = {
+            "client_token": client_token,
+            "expires_at": time.time() + lease_duration,
+        }
+    else:
+        _TOKEN_CACHE.pop(cache_key, None)
+    return client_token
 
 
 def update_rotated_credential(tenant_slug, path_suffix, updates):
@@ -40,7 +79,7 @@ def update_rotated_credential(tenant_slug, path_suffix, updates):
         )
 
     try:
-        login_resp = requests.put(
+        login_resp = _session.put(
             f"{bao_addr}/v1/auth/approle/login",
             json={"role_id": role_id, "secret_id": secret_id},
             timeout=10,
@@ -52,7 +91,7 @@ def update_rotated_credential(tenant_slug, path_suffix, updates):
 
     kv_path = f"kv/data/tenants/{tenant_slug}/{path_suffix}"
     try:
-        current_resp = requests.get(
+        current_resp = _session.get(
             f"{bao_addr}/v1/{kv_path}",
             headers={"X-Vault-Token": client_token},
             timeout=10,
@@ -65,7 +104,7 @@ def update_rotated_credential(tenant_slug, path_suffix, updates):
 
         merged = {**current_data, **updates}
 
-        write_resp = requests.post(
+        write_resp = _session.post(
             f"{bao_addr}/v1/{kv_path}",
             headers={"X-Vault-Token": client_token},
             json={"data": merged},
@@ -80,9 +119,12 @@ def update_rotated_credential(tenant_slug, path_suffix, updates):
 def fetch_openbao_secret(tenant_slug, path_suffix):
     """
     Fetch a secret from OpenBao KV v2 using AppRole auth.
-    Logs in fresh every call (no token caching) per design decision.
-    Raises on ANY failure (unreachable, sealed, auth failure)
-    — no silent fallback to os.environ.
+    The AppRole login is cached in-process for the lifetime of its lease
+    (see _openbao_login) instead of re-authenticating on every call --
+    at MSP scale (many devices/tenants, jobs firing across a large fleet)
+    a fresh AppRole login per secret fetch meant every sync run paid a
+    full OpenBao auth round-trip per device. Still raises on ANY failure
+    (unreachable, sealed, auth failure) — no silent fallback to os.environ.
     """
     bao_addr = os.environ.get('BAO_ADDR')
     role_id = os.environ.get('BAO_ROLE_ID')
@@ -93,22 +135,26 @@ def fetch_openbao_secret(tenant_slug, path_suffix):
             "not set in environment — cannot resolve credentials."
         )
     try:
-        login_resp = requests.put(
-            f"{bao_addr}/v1/auth/approle/login",
-            json={"role_id": role_id, "secret_id": secret_id},
-            timeout=10,
-        )
-        login_resp.raise_for_status()
-        client_token = login_resp.json()["auth"]["client_token"]
+        client_token = _openbao_login(bao_addr, role_id, secret_id)
     except Exception as e:
         raise Exception(f"OPENBAO_AUTH_FAILURE: could not authenticate to OpenBao — {e}")
     kv_path = f"kv/data/tenants/{tenant_slug}/{path_suffix}"
     try:
-        secret_resp = requests.get(
+        secret_resp = _session.get(
             f"{bao_addr}/v1/{kv_path}",
             headers={"X-Vault-Token": client_token},
             timeout=10,
         )
+        if secret_resp.status_code == 403:
+            # Cached token may have been revoked/expired server-side --
+            # drop it and retry once with a fresh login before giving up.
+            _TOKEN_CACHE.pop((bao_addr, role_id), None)
+            client_token = _openbao_login(bao_addr, role_id, secret_id)
+            secret_resp = _session.get(
+                f"{bao_addr}/v1/{kv_path}",
+                headers={"X-Vault-Token": client_token},
+                timeout=10,
+            )
         if secret_resp.status_code == 404:
             return {}
         secret_resp.raise_for_status()

@@ -19,7 +19,7 @@ BROKER_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BROKER_DIR)
 sys.path.insert(0, os.path.dirname(BROKER_DIR))
 sys.path.insert(0, os.path.join(os.path.dirname(BROKER_DIR), "onboarding"))
-from core import get_device_context, run_diagnostic_command
+from core import get_device_context, run_diagnostic_command, run_diagnostic_commands
 from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("nautobot-day2-agent-broker", host="0.0.0.0", port=8090)
@@ -84,6 +84,31 @@ def run_command(device_name: str, command: str) -> dict:
         return {"device": device_name, "command": command, "error": str(e)}
     finally:
         BROKER_DURATION.labels(endpoint="run_command").observe(time.time() - start)
+
+
+@mcp.tool()
+def run_commands_batch(device_name: str, commands: list) -> dict:
+    """
+    Run a LIST of diagnostic commands against a real network device over
+    ONE connection (SSH) or the shared HTTP session (API-managed
+    devices), instead of one connection per command. Use this instead of
+    repeated run_command() calls when asking a device several things in
+    a row -- it avoids paying a full SSH handshake per question. A
+    failure on one command does not abort the rest of the batch. No
+    command allowlist is enforced — any command string will be attempted
+    as-is.
+    """
+    start = time.time()
+    try:
+        results = run_diagnostic_commands(device_name, commands)
+        outcome = "error" if any(r["error"] for r in results) else "ok"
+        BROKER_REQUESTS.labels(endpoint="run_commands_batch", device=device_name, outcome=outcome).inc()
+        return {"device": device_name, "results": results}
+    except Exception as e:
+        BROKER_REQUESTS.labels(endpoint="run_commands_batch", device=device_name, outcome="error").inc()
+        return {"device": device_name, "error": str(e)}
+    finally:
+        BROKER_DURATION.labels(endpoint="run_commands_batch").observe(time.time() - start)
 
 
 if __name__ == "__main__":

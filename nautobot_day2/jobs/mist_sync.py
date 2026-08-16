@@ -54,6 +54,11 @@ class MistSyncJob(Job):
     def run(self, api_url, secrets_group, tenant, default_location, dry_run):
         """Main job execution."""
 
+        # Shared connection pool for every Mist API call this run makes --
+        # previously each call was a bare requests.get() with no session,
+        # a fresh TCP connection per site/device-type request.
+        session = requests.Session()
+
         # Step 1 — Get API token
         self.logger.info("Fetching API token from Secrets Group...")
         try:
@@ -73,7 +78,7 @@ class MistSyncJob(Job):
         # Step 2 — Connect to Mist
         self.logger.info(f"Connecting to Mist API: {api_url}")
         try:
-            resp = requests.get(f"{api_url}/api/v1/self", headers=headers, timeout=30)
+            resp = session.get(f"{api_url}/api/v1/self", headers=headers, timeout=30)
             resp.raise_for_status()
         except Exception as e:
             self.logger.error(f"Failed to connect to Mist API: {e}")
@@ -91,7 +96,7 @@ class MistSyncJob(Job):
 
         # Step 3 — Get all sites
         try:
-            sites_resp = requests.get(
+            sites_resp = session.get(
                 f"{api_url}/api/v1/orgs/{org_id}/sites",
                 headers=headers, timeout=30
             )
@@ -132,7 +137,7 @@ class MistSyncJob(Job):
 
             for device_type_str in ["ap", "switch", "gateway"]:
                 try:
-                    dev_resp = requests.get(
+                    dev_resp = session.get(
                         f"{api_url}/api/v1/sites/{site_id}/devices",
                         headers=headers,
                         params={"type": device_type_str},

@@ -10,9 +10,17 @@ import os
 import json
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "onboarding"))
+import requests
 from sync_network_data import resolve_vendor, get_yaml_block, resolve_creds, _aruba_central_get_token, _find_site_firewall_ip
 from client import NautobotClient
 from openbao_client import fetch_openbao_secret
+
+# Shared connection pool for all outbound API-vendor dispatch calls (Mist /
+# Aruba Central). Previously each dispatch opened its own bare
+# requests.request() call with no session -- a fresh TCP connection every
+# time. Reusing one Session gives keep-alive reuse across every command in
+# a batch and across separate broker requests within this process.
+_HTTP_SESSION = requests.Session()
 def get_device_context(device_name):
     """
     Look up a device in Nautobot by name.
@@ -100,8 +108,50 @@ def fetch_device_credential(device_context):
     return fetch_openbao_secret(tenant_slug, path_suffix)
 def run_diagnostic_command(device_name, command):
     """
-    Full pipeline: look up device -> fetch credential -> resolve vendor
-    connection type -> dispatch via Netmiko -> return raw output.
+    Backwards-compatible single-command entry point. Delegates to
+    run_diagnostic_commands() (a 1-item batch) so single-command and
+    batched callers share one code path.
+    """
+    result = run_diagnostic_commands(device_name, [command])[0]
+    if result["error"]:
+        raise Exception(result["error"])
+    return result["output"]
+
+
+def _as_api_request(command):
+    """
+    Detect API-request-shaped command ({"method": "GET", "path": "..."})
+    vs a plain SSH CLI string, per the "generic passthrough" design
+    decision -- API vendors don't take arbitrary CLI strings, they take
+    a method+path against a REST endpoint.
+    """
+    if isinstance(command, dict):
+        return command
+    if isinstance(command, str):
+        try:
+            parsed = json.loads(command)
+            if isinstance(parsed, dict) and "path" in parsed:
+                return parsed
+        except (json.JSONDecodeError, ValueError):
+            pass
+    return None
+
+
+def run_diagnostic_commands(device_name, commands):
+    """
+    Batched pipeline: look up device -> fetch credential -> resolve vendor
+    connection type ONCE, then run every command in `commands` over that
+    SAME SSH connection (or the shared HTTP session for API-managed
+    devices) instead of opening a fresh session per command -- each
+    previous call to run_diagnostic_command() paid a full SSH handshake
+    for a single command, even when an agent asked several questions about
+    the same device back-to-back.
+
+    Returns a list of {"command":, "output":, "error":} dicts, one per
+    input command, in the same order. A failure on one command does not
+    abort the rest of the batch (mirrors ssh_get_data()'s per-command
+    error isolation in the scheduled sync engine).
+
     No command allowlist, no restricted-account enforcement (explicit
     decision — see project changelog). Any command string is accepted
     and run with whatever credential is stored for this device/tenant.
@@ -120,30 +170,32 @@ def run_diagnostic_command(device_name, command):
     # Same credential resolver the sync engine uses -- returns friendly
     # keys (user/password, or client_id/client_secret/base_url/token
     # depending on vendor) rather than raw OpenBao env-var-style keys.
+    # Resolved ONCE for the whole batch, not per command.
     creds = resolve_creds(sg_name, tenant_slug)
-    # Detect API-request-shaped command ({"method": "GET", "path": "..."})
-    # vs a plain SSH CLI string, per the "generic passthrough" design
-    # decision -- API vendors don't take arbitrary CLI strings, they take
-    # a method+path against a REST endpoint.
-    api_request = None
-    if isinstance(command, dict):
-        api_request = command
-    elif isinstance(command, str):
-        try:
-            parsed = json.loads(command)
-            if isinstance(parsed, dict) and "path" in parsed:
-                api_request = parsed
-        except (json.JSONDecodeError, ValueError):
-            pass
     api_type = yaml_block.get("api_type")
-    if api_type and api_request:
-        return _dispatch_api(device_name, api_type, creds, api_request, tenant_slug)
-    if api_type and not api_request:
-        raise Exception(
-            f"API_COMMAND_REQUIRED: '{device_name}' is an API-managed device "
-            f"({api_type}) -- command must be a JSON object like "
-            f'{{"method": "GET", "path": "/monitoring/v2/aps"}}, not a plain CLI string.'
-        )
+
+    if api_type:
+        results = []
+        for command in commands:
+            api_request = _as_api_request(command)
+            if not api_request:
+                results.append({
+                    "command": command,
+                    "output": None,
+                    "error": (
+                        f"API_COMMAND_REQUIRED: '{device_name}' is an API-managed device "
+                        f"({api_type}) -- command must be a JSON object like "
+                        f'{{"method": "GET", "path": "/monitoring/v2/aps"}}, not a plain CLI string.'
+                    ),
+                })
+                continue
+            try:
+                output = _dispatch_api(device_name, api_type, creds, api_request, tenant_slug)
+                results.append({"command": command, "output": output, "error": None})
+            except Exception as e:
+                results.append({"command": command, "output": None, "error": str(e)})
+        return results
+
     netmiko_device_type = yaml_block.get("netmiko_device_type")
     if not netmiko_device_type:
         raise Exception(f"NO_NETMIKO_TYPE: {section}/{yaml_key} has no netmiko_device_type and no api_type -- unsupported vendor block")
@@ -151,10 +203,7 @@ def run_diagnostic_command(device_name, command):
     # FortiAP has no independently reachable SSH server (confirmed
     # against real hardware: a genuine TCP timeout). It is managed
     # entirely through its controlling FortiGate. Mirrors the exact
-    # same fix already built into sync_network_data.py's sync_device()
-    # -- that fix was never applied to this broker dispatch path until
-    # now, meaning any agent trying to run a diagnostic command against
-    # a FortiAP through the broker would always fail this same way.
+    # same fix already built into sync_network_data.py's sync_device().
     device_ip = ctx.get("ip_address")
     if yaml_key == "fortinet_ap_ssh":
         loc_name = ctx.get("location_name") or ""
@@ -194,22 +243,36 @@ def run_diagnostic_command(device_name, command):
     # is Nornir's default but must be registered explicitly since we
     # build the Nornir object directly rather than via InitNornir().
     nr = Nornir(inventory=inv, runner=ThreadedRunner(num_workers=1))
-    result = nr.run(
-        task=netmiko_send_command,
-        command_string=command,
-        use_timing=True,
-        delay_factor=2,
-        strip_prompt=True,
-        strip_command=True,
-    )
-    host_result = result[device_name]
-    # NOTE: MultiResult.failed aggregates every subtask attempt including
-    # retried-and-recovered ones -- check the top-level task result
-    # (index 0) specifically, per this project's own documented Nornir
-    # lesson, not the aggregate .failed property.
-    if host_result[0].failed:
-        raise Exception(f"NORNIR_DISPATCH_FAILED: {host_result[0].exception}")
-    return host_result[0].result
+    results = []
+    try:
+        # ONE ConnectHandler login for the whole batch: Nornir/nornir_netmiko
+        # caches the connection on this Host for the lifetime of `nr`, so
+        # each loop iteration below reuses it instead of reconnecting.
+        for command in commands:
+            try:
+                result = nr.run(
+                    task=netmiko_send_command,
+                    command_string=command,
+                    use_timing=True,
+                    delay_factor=2,
+                    strip_prompt=True,
+                    strip_command=True,
+                )
+                host_result = result[device_name]
+                # NOTE: MultiResult.failed aggregates every subtask attempt
+                # including retried-and-recovered ones -- check the
+                # top-level task result (index 0) specifically, per this
+                # project's own documented Nornir lesson, not the
+                # aggregate .failed property.
+                if host_result[0].failed:
+                    results.append({"command": command, "output": None, "error": f"NORNIR_DISPATCH_FAILED: {host_result[0].exception}"})
+                else:
+                    results.append({"command": command, "output": host_result[0].result, "error": None})
+            except Exception as e:
+                results.append({"command": command, "output": None, "error": f"NORNIR_DISPATCH_FAILED: {e}"})
+    finally:
+        nr.close_connections()
+    return results
 def _dispatch_api(device_name, api_type, creds, api_request, tenant_slug=''):
     """
     Dispatch a generic {"method": ..., "path": ...} request against an
@@ -237,7 +300,6 @@ def _dispatch_api(device_name, api_type, creds, api_request, tenant_slug=''):
             raise Exception(f"NO_ORG_ID: '{device_name}' has no org_id in its resolved credentials")
         path = path.replace("{org_id}", org_id)
     def _api_task(task):
-        import requests as _requests
         if api_type == "juniper_mist":
             base_url = creds.get("base_url") or "https://api.mist.com"
             token = creds.get("token", "")
@@ -248,7 +310,7 @@ def _dispatch_api(device_name, api_type, creds, api_request, tenant_slug=''):
             headers = {"Authorization": f"Bearer {access_token}"}
         else:
             raise Exception(f"UNSUPPORTED_API_TYPE: '{api_type}' has no dispatch handler")
-        resp = _requests.request(method, f"{base_url}{path}", headers=headers, timeout=15)
+        resp = _HTTP_SESSION.request(method, f"{base_url}{path}", headers=headers, timeout=15)
         if not resp.ok:
             raise Exception(f"API_ERROR: {resp.status_code} {resp.text[:300]}")
         return Result(host=task.host, result=resp.json())

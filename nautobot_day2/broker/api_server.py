@@ -20,7 +20,7 @@ BROKER_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BROKER_DIR)
 sys.path.insert(0, os.path.dirname(BROKER_DIR))
 sys.path.insert(0, os.path.join(os.path.dirname(BROKER_DIR), "onboarding"))
-from core import get_device_context, run_diagnostic_command
+from core import get_device_context, run_diagnostic_command, run_diagnostic_commands
 
 app = Flask(__name__)
 
@@ -84,6 +84,34 @@ def diagnose():
         return jsonify({"device": device_name, "command": command, "error": str(e)}), 500
     finally:
         BROKER_DURATION.labels(endpoint="diagnose").observe(time.time() - start)
+
+
+@app.route("/diagnose_batch", methods=["POST"])
+def diagnose_batch():
+    """
+    Body: {"device": "<device_name>", "commands": ["<command 1>", ...]}
+    Runs every command against the device over ONE connection (SSH) or
+    the shared HTTP session (API-managed devices), instead of one
+    connection per command. A failure on one command does not abort the
+    rest of the batch. No command allowlist enforced (explicit project
+    decision, same as /diagnose).
+    """
+    data = request.get_json(silent=True) or {}
+    device_name = data.get("device")
+    commands = data.get("commands")
+    if not device_name or not isinstance(commands, list) or not commands:
+        return jsonify({"error": "MISSING_FIELDS: 'device' and a non-empty 'commands' list are required"}), 400
+    start = time.time()
+    try:
+        results = run_diagnostic_commands(device_name, commands)
+        outcome = "error" if any(r["error"] for r in results) else "ok"
+        BROKER_REQUESTS.labels(endpoint="diagnose_batch", device=device_name, outcome=outcome).inc()
+        return jsonify({"device": device_name, "results": results})
+    except Exception as e:
+        BROKER_REQUESTS.labels(endpoint="diagnose_batch", device=device_name, outcome="error").inc()
+        return jsonify({"device": device_name, "error": str(e)}), 500
+    finally:
+        BROKER_DURATION.labels(endpoint="diagnose_batch").observe(time.time() - start)
 
 
 @app.route("/health")
