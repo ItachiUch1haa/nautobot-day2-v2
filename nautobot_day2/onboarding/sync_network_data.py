@@ -1245,24 +1245,6 @@ def extract_lldp(raw_output, yaml_key, device_serial='', device_name=''):
     return neighbors
 
 
-def extract_neighbors(raw_output, yaml_key):
-    """Extract LLDP/CDP neighbors from raw output."""
-    lldp_out = raw_output.get('lldp_neighbors', '')
-    neighbors = []
-    for line in lldp_out.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        parts = line.split()
-        if len(parts) >= 2:
-            neighbors.append({
-                'local_port':    parts[0],
-                'remote_device': parts[-1] if len(parts) > 1 else '',
-                'remote_port':   parts[2] if len(parts) > 2 else '',
-            })
-    return neighbors
-
-
 # ── Nautobot writer ───────────────────────────────────────────────────────────
 def api_get_all(endpoint, params=None):
     return client.get_all(endpoint, params=params)
@@ -1303,35 +1285,6 @@ def write_interfaces(device_id, interfaces, dry_run):
         if r2.status_code in (200, 201):
             written += 1
     return written
-
-def _assign_ip_to_interface(ip_addr, intf_id, device_id):
-    """Create IP address and link it to interface if not already existing."""
-    # Check if IP already exists
-    r = client.get('ipam/ip-addresses', params={'address': ip_addr, 'limit': 1})
-    if r.ok and r.json().get('count', 0) > 0:
-        ip_id = r.json()['results'][0]['id']
-    else:
-        # Create IP
-        statuses = client.get('extras/statuses', params={'limit': 200})
-        active_id = next((s['id'] for s in statuses.json().get('results',[])
-                          if s['name'] == 'Active'), None) if statuses.ok else None
-        r2 = api_post('ipam/ip-addresses', {
-            'address': ip_addr,
-            'status':  {'id': active_id} if active_id else None,
-        })
-        if not r2 or not r2.ok:
-            return
-        ip_id = r2.json().get('id')
-
-    if not ip_id:
-        return
-
-    # Link to interface
-    api_post('ipam/ip-address-to-interface', {
-        'ip_address': {'id': ip_id},
-        'interface':  {'id': intf_id},
-    })
-
 
 def _find_interface(device_id, port_name):
     """

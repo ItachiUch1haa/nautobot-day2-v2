@@ -46,47 +46,6 @@
       "nautobot_task"
     ],
     "1": [
-      "custom_route",
-      "nautobot_day2_broker_api_server",
-      "nautobot_day2_broker_api_server_device_info",
-      "nautobot_day2_broker_api_server_diagnose",
-      "nautobot_day2_broker_api_server_diagnose_batch",
-      "nautobot_day2_broker_api_server_health",
-      "nautobot_day2_broker_api_server_metrics",
-      "nautobot_day2_broker_api_server_py_route",
-      "nautobot_day2_broker_api_server_rationale_1",
-      "nautobot_day2_broker_api_server_rationale_52",
-      "nautobot_day2_broker_api_server_rationale_67",
-      "nautobot_day2_broker_api_server_rationale_91",
-      "nautobot_day2_broker_core",
-      "nautobot_day2_broker_core_as_api_request",
-      "nautobot_day2_broker_core_dispatch_api",
-      "nautobot_day2_broker_core_fetch_device_credential",
-      "nautobot_day2_broker_core_get_device_context",
-      "nautobot_day2_broker_core_rationale_1",
-      "nautobot_day2_broker_core_rationale_110",
-      "nautobot_day2_broker_core_rationale_122",
-      "nautobot_day2_broker_core_rationale_141",
-      "nautobot_day2_broker_core_rationale_25",
-      "nautobot_day2_broker_core_rationale_262",
-      "nautobot_day2_broker_core_rationale_277",
-      "nautobot_day2_broker_core_rationale_93",
-      "nautobot_day2_broker_core_run_diagnostic_command",
-      "nautobot_day2_broker_core_run_diagnostic_commands",
-      "nautobot_day2_broker_mcp_server",
-      "nautobot_day2_broker_mcp_server_get_device_info",
-      "nautobot_day2_broker_mcp_server_metrics",
-      "nautobot_day2_broker_mcp_server_rationale_1",
-      "nautobot_day2_broker_mcp_server_rationale_51",
-      "nautobot_day2_broker_mcp_server_rationale_70",
-      "nautobot_day2_broker_mcp_server_rationale_91",
-      "nautobot_day2_broker_mcp_server_run_command",
-      "nautobot_day2_broker_mcp_server_run_commands_batch",
-      "plaintextresponse",
-      "request",
-      "tool"
-    ],
-    "2": [
       "nautobot_day2_onboarding_nautobot_onboard_v2",
       "nautobot_day2_onboarding_nautobot_onboard_v2_api_get_all",
       "nautobot_day2_onboarding_nautobot_onboard_v2_api_patch",
@@ -127,7 +86,84 @@
       "nautobot_day2_onboarding_nautobot_onboard_v2_rationale_64",
       "nautobot_day2_onboarding_nautobot_onboard_v2_set_primary_ip"
     ],
+    "2": [
+      "custom_route",
+      "nautobot_day2_broker_api_server",
+      "nautobot_day2_broker_api_server_device_info",
+      "nautobot_day2_broker_api_server_diagnose",
+      "nautobot_day2_broker_api_server_diagnose_batch",
+      "nautobot_day2_broker_api_server_health",
+      "nautobot_day2_broker_api_server_metrics",
+      "nautobot_day2_broker_api_server_py_route",
+      "nautobot_day2_broker_api_server_rationale_1",
+      "nautobot_day2_broker_api_server_rationale_52",
+      "nautobot_day2_broker_api_server_rationale_67",
+      "nautobot_day2_broker_api_server_rationale_91",
+      "nautobot_day2_broker_core",
+      "nautobot_day2_broker_core_as_api_request",
+      "nautobot_day2_broker_core_dispatch_api",
+      "nautobot_day2_broker_core_get_device_context",
+      "nautobot_day2_broker_core_rationale_1",
+      "nautobot_day2_broker_core_rationale_104",
+      "nautobot_day2_broker_core_rationale_123",
+      "nautobot_day2_broker_core_rationale_24",
+      "nautobot_day2_broker_core_rationale_244",
+      "nautobot_day2_broker_core_rationale_259",
+      "nautobot_day2_broker_core_rationale_92",
+      "nautobot_day2_broker_core_run_diagnostic_command",
+      "nautobot_day2_broker_core_run_diagnostic_commands",
+      "nautobot_day2_broker_mcp_server",
+      "nautobot_day2_broker_mcp_server_get_device_info",
+      "nautobot_day2_broker_mcp_server_metrics",
+      "nautobot_day2_broker_mcp_server_rationale_1",
+      "nautobot_day2_broker_mcp_server_rationale_51",
+      "nautobot_day2_broker_mcp_server_rationale_70",
+      "nautobot_day2_broker_mcp_server_rationale_91",
+      "nautobot_day2_broker_mcp_server_run_command",
+      "nautobot_day2_broker_mcp_server_run_commands_batch",
+      "plaintextresponse",
+      "request",
+      "tool"
+    ],
     "3": [
+      "nautobot_day2_onboarding_create_tenant",
+      "nautobot_day2_onboarding_create_tenant_api_post",
+      "nautobot_day2_onboarding_create_tenant_association_exists",
+      "nautobot_day2_onboarding_create_tenant_create_external_integrations",
+      "nautobot_day2_onboarding_create_tenant_create_namespace",
+      "nautobot_day2_onboarding_create_tenant_create_secrets_groups",
+      "nautobot_day2_onboarding_create_tenant_create_tenant_record",
+      "nautobot_day2_onboarding_create_tenant_derive_objects",
+      "nautobot_day2_onboarding_create_tenant_existing_env_vars",
+      "nautobot_day2_onboarding_create_tenant_exists_by_name",
+      "nautobot_day2_onboarding_create_tenant_get_id_by_name",
+      "nautobot_day2_onboarding_create_tenant_get_or_create_secret",
+      "nautobot_day2_onboarding_create_tenant_infer_secret_type",
+      "nautobot_day2_onboarding_create_tenant_load_profile",
+      "nautobot_day2_onboarding_create_tenant_main",
+      "nautobot_day2_onboarding_create_tenant_rationale_1",
+      "nautobot_day2_onboarding_create_tenant_rationale_126",
+      "nautobot_day2_onboarding_create_tenant_rationale_266",
+      "nautobot_day2_onboarding_create_tenant_rationale_293",
+      "nautobot_day2_onboarding_create_tenant_rationale_435",
+      "nautobot_day2_onboarding_create_tenant_rationale_448",
+      "nautobot_day2_onboarding_create_tenant_rationale_60",
+      "nautobot_day2_onboarding_create_tenant_rationale_81",
+      "nautobot_day2_onboarding_create_tenant_run_create_tenant",
+      "nautobot_day2_onboarding_create_tenant_save_manifest",
+      "nautobot_day2_onboarding_create_tenant_slugify",
+      "nautobot_day2_onboarding_create_tenant_validate_profile",
+      "nautobot_day2_onboarding_create_tenant_write_env_file",
+      "nautobot_day2_onboarding_upload_app_api_credential_requirements",
+      "nautobot_day2_onboarding_upload_app_api_save_credentials",
+      "nautobot_day2_onboarding_upload_app_find_external_integration_label",
+      "nautobot_day2_onboarding_upload_app_rationale_279",
+      "nautobot_day2_onboarding_upload_app_rationale_318",
+      "nautobot_day2_onboarding_upload_app_rationale_336",
+      "nautobot_day2_onboarding_vendor_matrix_get_external_integration_name",
+      "nautobot_day2_onboarding_vendor_matrix_rationale_477"
+    ],
+    "4": [
       "nautobot_day2_client",
       "nautobot_day2_client_get_logger",
       "nautobot_day2_client_nautobotapierror",
@@ -161,40 +197,6 @@
       "nautobot_day2_onboarding_preflight_check_port_reachable",
       "nautobot_day2_onboarding_preflight_check_section",
       "nautobot_day2_onboarding_preflight_check_systemctl_active"
-    ],
-    "4": [
-      "nautobot_day2_onboarding_create_tenant",
-      "nautobot_day2_onboarding_create_tenant_api_post",
-      "nautobot_day2_onboarding_create_tenant_association_exists",
-      "nautobot_day2_onboarding_create_tenant_create_external_integrations",
-      "nautobot_day2_onboarding_create_tenant_create_namespace",
-      "nautobot_day2_onboarding_create_tenant_create_secrets_groups",
-      "nautobot_day2_onboarding_create_tenant_create_tenant_record",
-      "nautobot_day2_onboarding_create_tenant_derive_objects",
-      "nautobot_day2_onboarding_create_tenant_existing_env_vars",
-      "nautobot_day2_onboarding_create_tenant_exists_by_name",
-      "nautobot_day2_onboarding_create_tenant_get_id_by_name",
-      "nautobot_day2_onboarding_create_tenant_get_or_create_secret",
-      "nautobot_day2_onboarding_create_tenant_infer_secret_type",
-      "nautobot_day2_onboarding_create_tenant_load_profile",
-      "nautobot_day2_onboarding_create_tenant_main",
-      "nautobot_day2_onboarding_create_tenant_rationale_1",
-      "nautobot_day2_onboarding_create_tenant_rationale_126",
-      "nautobot_day2_onboarding_create_tenant_rationale_266",
-      "nautobot_day2_onboarding_create_tenant_rationale_293",
-      "nautobot_day2_onboarding_create_tenant_rationale_435",
-      "nautobot_day2_onboarding_create_tenant_rationale_448",
-      "nautobot_day2_onboarding_create_tenant_rationale_60",
-      "nautobot_day2_onboarding_create_tenant_rationale_81",
-      "nautobot_day2_onboarding_create_tenant_run_create_tenant",
-      "nautobot_day2_onboarding_create_tenant_save_manifest",
-      "nautobot_day2_onboarding_create_tenant_slugify",
-      "nautobot_day2_onboarding_create_tenant_validate_profile",
-      "nautobot_day2_onboarding_create_tenant_write_env_file",
-      "nautobot_day2_onboarding_upload_app_api_credential_requirements",
-      "nautobot_day2_onboarding_upload_app_rationale_279",
-      "nautobot_day2_onboarding_vendor_matrix_get_external_integration_name",
-      "nautobot_day2_onboarding_vendor_matrix_rationale_477"
     ],
     "5": [
       "nautobot_day2_onboarding_onboard_cli",
@@ -293,6 +295,28 @@
       "nautobot_day2_onboarding_upload_app_validate_rows"
     ],
     "8": [
+      "nautobot_day2_onboarding_sync_network_data",
+      "nautobot_day2_onboarding_sync_network_data_api_get_all",
+      "nautobot_day2_onboarding_sync_network_data_get_active_status_id",
+      "nautobot_day2_onboarding_sync_network_data_get_devices",
+      "nautobot_day2_onboarding_sync_network_data_get_devices_for_site",
+      "nautobot_day2_onboarding_sync_network_data_get_yaml_block",
+      "nautobot_day2_onboarding_sync_network_data_init_cache",
+      "nautobot_day2_onboarding_sync_network_data_load_last_failed",
+      "nautobot_day2_onboarding_sync_network_data_load_vendor_commands",
+      "nautobot_day2_onboarding_sync_network_data_main",
+      "nautobot_day2_onboarding_sync_network_data_natural_to_slug",
+      "nautobot_day2_onboarding_sync_network_data_print_results",
+      "nautobot_day2_onboarding_sync_network_data_rationale_1",
+      "nautobot_day2_onboarding_sync_network_data_rationale_1387",
+      "nautobot_day2_onboarding_sync_network_data_rationale_1979",
+      "nautobot_day2_onboarding_sync_network_data_rationale_201",
+      "nautobot_day2_onboarding_sync_network_data_rationale_208",
+      "nautobot_day2_onboarding_sync_network_data_rationale_549",
+      "nautobot_day2_onboarding_sync_network_data_resolve_vendor",
+      "nautobot_day2_onboarding_sync_network_data_save_manifest"
+    ],
+    "9": [
       "nautobot_day2_onboarding_bootstrap_nautobot",
       "nautobot_day2_onboarding_bootstrap_nautobot_api_get",
       "nautobot_day2_onboarding_bootstrap_nautobot_api_post",
@@ -310,13 +334,9 @@
       "nautobot_day2_onboarding_bootstrap_nautobot_rationale_1",
       "nautobot_day2_onboarding_bootstrap_nautobot_rationale_108",
       "nautobot_day2_onboarding_vendor_matrix_get_all_manufacturers",
-      "nautobot_day2_onboarding_vendor_matrix_get_all_platforms",
-      "nautobot_day2_onboarding_vendor_matrix_rationale_493",
-      "nautobot_day2_onboarding_vendor_matrix_rationale_511",
-      "nautobot_day2_onboarding_vendor_matrix_rationale_545",
-      "nautobot_day2_onboarding_vendor_matrix_validate_platform_slug_uniqueness"
+      "nautobot_day2_onboarding_vendor_matrix_rationale_545"
     ],
-    "9": [
+    "10": [
       "nautobot_day2_onboarding_credential_checker",
       "nautobot_day2_onboarding_credential_checker_check_credentials",
       "nautobot_day2_onboarding_credential_checker_derive_expected_vars",
@@ -334,9 +354,9 @@
       "nautobot_day2_onboarding_vendor_matrix_get_env_vars",
       "nautobot_day2_onboarding_vendor_matrix_needs_enable_mode",
       "nautobot_day2_onboarding_vendor_matrix_rationale_485",
-      "nautobot_day2_onboarding_vendor_matrix_rationale_571"
+      "nautobot_day2_onboarding_vendor_matrix_rationale_553"
     ],
-    "10": [
+    "11": [
       "nautobot_day2_chatops_worker",
       "nautobot_day2_chatops_worker_fill_creds",
       "nautobot_day2_chatops_worker_load_onboard_module",
@@ -354,25 +374,6 @@
       "nautobot_day2_chatops_worker_tenant_choices",
       "nautobot_day2_chatops_worker_write_env_value",
       "subcommand_of"
-    ],
-    "11": [
-      "nautobot_day2_onboarding_sync_network_data",
-      "nautobot_day2_onboarding_sync_network_data_api_get_all",
-      "nautobot_day2_onboarding_sync_network_data_get_devices",
-      "nautobot_day2_onboarding_sync_network_data_get_devices_for_site",
-      "nautobot_day2_onboarding_sync_network_data_get_yaml_block",
-      "nautobot_day2_onboarding_sync_network_data_init_cache",
-      "nautobot_day2_onboarding_sync_network_data_load_last_failed",
-      "nautobot_day2_onboarding_sync_network_data_load_vendor_commands",
-      "nautobot_day2_onboarding_sync_network_data_main",
-      "nautobot_day2_onboarding_sync_network_data_natural_to_slug",
-      "nautobot_day2_onboarding_sync_network_data_print_results",
-      "nautobot_day2_onboarding_sync_network_data_rationale_1",
-      "nautobot_day2_onboarding_sync_network_data_rationale_1434",
-      "nautobot_day2_onboarding_sync_network_data_rationale_201",
-      "nautobot_day2_onboarding_sync_network_data_rationale_2026",
-      "nautobot_day2_onboarding_sync_network_data_rationale_549",
-      "nautobot_day2_onboarding_sync_network_data_save_manifest"
     ],
     "12": [
       "nautobot_day2_onboarding_vendor_test",
@@ -394,24 +395,6 @@
       "nautobot_day2_onboarding_vendor_test_warn"
     ],
     "13": [
-      "nautobot_day2_onboarding_nautobot_prepare_derive_platform",
-      "nautobot_day2_onboarding_nautobot_prepare_rationale_226",
-      "nautobot_day2_onboarding_upload_app_api_vendor_platforms",
-      "nautobot_day2_onboarding_upload_app_rationale_152",
-      "nautobot_day2_onboarding_vendor_matrix",
-      "nautobot_day2_onboarding_vendor_matrix_get_default_platform",
-      "nautobot_day2_onboarding_vendor_matrix_get_platforms_for_combo",
-      "nautobot_day2_onboarding_vendor_matrix_get_roles_for_vendor",
-      "nautobot_day2_onboarding_vendor_matrix_get_secrets_group_prefix",
-      "nautobot_day2_onboarding_vendor_matrix_get_sync_handler",
-      "nautobot_day2_onboarding_vendor_matrix_rationale_1",
-      "nautobot_day2_onboarding_vendor_matrix_rationale_452",
-      "nautobot_day2_onboarding_vendor_matrix_rationale_460",
-      "nautobot_day2_onboarding_vendor_matrix_rationale_469",
-      "nautobot_day2_onboarding_vendor_matrix_rationale_553",
-      "nautobot_day2_onboarding_vendor_matrix_rationale_563"
-    ],
-    "14": [
       "nautobot_day2_onboarding_upload_app_api_validate_credentials",
       "nautobot_day2_onboarding_upload_app_rationale_477",
       "nautobot_day2_onboarding_vendor_test_app",
@@ -428,21 +411,21 @@
       "nautobot_day2_onboarding_vendor_test_app_test_mist",
       "nautobot_day2_onboarding_vendor_test_app_test_ssh"
     ],
-    "15": [
-      "nautobot_day2_onboarding_sync_network_data_extract_interfaces",
-      "nautobot_day2_onboarding_sync_network_data_find_site_firewall_ip",
-      "nautobot_day2_onboarding_sync_network_data_rationale_1746",
-      "nautobot_day2_onboarding_sync_network_data_rationale_208",
-      "nautobot_day2_onboarding_sync_network_data_rationale_939",
-      "nautobot_day2_onboarding_sync_network_data_resolve_vendor",
-      "nautobot_day2_onboarding_sync_network_data_sync_device",
-      "nautobot_day2_onboarding_sync_network_data_syncresult",
-      "nautobot_day2_onboarding_sync_network_data_syncresult_fail",
-      "nautobot_day2_onboarding_sync_network_data_syncresult_init",
-      "nautobot_day2_onboarding_sync_network_data_syncresult_skip",
-      "nautobot_day2_onboarding_sync_network_data_syncresult_success"
+    "14": [
+      "nautobot_day2_onboarding_upload_app_api_vendors",
+      "nautobot_day2_onboarding_upload_app_rationale_94",
+      "nautobot_day2_onboarding_vendor_matrix",
+      "nautobot_day2_onboarding_vendor_matrix_get_all_platforms",
+      "nautobot_day2_onboarding_vendor_matrix_get_enabled_vendors",
+      "nautobot_day2_onboarding_vendor_matrix_get_secrets_group_prefix",
+      "nautobot_day2_onboarding_vendor_matrix_rationale_1",
+      "nautobot_day2_onboarding_vendor_matrix_rationale_429",
+      "nautobot_day2_onboarding_vendor_matrix_rationale_469",
+      "nautobot_day2_onboarding_vendor_matrix_rationale_493",
+      "nautobot_day2_onboarding_vendor_matrix_rationale_511",
+      "nautobot_day2_onboarding_vendor_matrix_validate_platform_slug_uniqueness"
     ],
-    "16": [
+    "15": [
       "nautobot_day2_onboarding_upload_app_api_managed_by",
       "nautobot_day2_onboarding_upload_app_api_vendor_full_selections",
       "nautobot_day2_onboarding_upload_app_api_vendor_roles",
@@ -453,6 +436,16 @@
       "nautobot_day2_onboarding_vendor_matrix_get_device_types_for_vendor",
       "nautobot_day2_onboarding_vendor_matrix_rationale_435",
       "nautobot_day2_onboarding_vendor_matrix_rationale_443"
+    ],
+    "16": [
+      "nautobot_day2_onboarding_nautobot_prepare_derive_platform",
+      "nautobot_day2_onboarding_nautobot_prepare_rationale_226",
+      "nautobot_day2_onboarding_upload_app_api_vendor_platforms",
+      "nautobot_day2_onboarding_upload_app_rationale_152",
+      "nautobot_day2_onboarding_vendor_matrix_get_default_platform",
+      "nautobot_day2_onboarding_vendor_matrix_get_platforms_for_combo",
+      "nautobot_day2_onboarding_vendor_matrix_rationale_452",
+      "nautobot_day2_onboarding_vendor_matrix_rationale_460"
     ],
     "17": [
       "nautobot_day2_onboarding_sync_network_data_api_get_data",
@@ -465,13 +458,14 @@
       "nautobot_day2_openbao_client_update_rotated_credential"
     ],
     "18": [
-      "nautobot_day2_onboarding_sync_network_data_api_post",
-      "nautobot_day2_onboarding_sync_network_data_assign_ip_to_interface",
-      "nautobot_day2_onboarding_sync_network_data_find_interface",
-      "nautobot_day2_onboarding_sync_network_data_rationale_1308",
-      "nautobot_day2_onboarding_sync_network_data_rationale_1337",
-      "nautobot_day2_onboarding_sync_network_data_rationale_1389",
-      "nautobot_day2_onboarding_sync_network_data_write_cables"
+      "nautobot_day2_onboarding_sync_network_data_api_patch",
+      "nautobot_day2_onboarding_sync_network_data_extract_interfaces",
+      "nautobot_day2_onboarding_sync_network_data_find_site_firewall_ip",
+      "nautobot_day2_onboarding_sync_network_data_rationale_1699",
+      "nautobot_day2_onboarding_sync_network_data_rationale_939",
+      "nautobot_day2_onboarding_sync_network_data_sync_device",
+      "nautobot_day2_onboarding_sync_network_data_write_facts",
+      "nautobot_day2_onboarding_sync_network_data_write_interfaces"
     ],
     "19": [
       "nautobot_day2_onboarding_sync_network_data_rationale_237",
@@ -487,7 +481,7 @@
       "nautobot_day2_onboarding_sync_network_data_extract_lldp",
       "nautobot_day2_onboarding_sync_network_data_parse_wtp_status_blocks",
       "nautobot_day2_onboarding_sync_network_data_rationale_1106",
-      "nautobot_day2_onboarding_sync_network_data_rationale_1785",
+      "nautobot_day2_onboarding_sync_network_data_rationale_1738",
       "nautobot_day2_onboarding_sync_network_data_rationale_785"
     ],
     "21": [
@@ -499,103 +493,93 @@
       "nautobot_day2_onboarding_sync_network_data_ssh_get_data"
     ],
     "22": [
+      "nautobot_day2_onboarding_sync_network_data_api_post",
+      "nautobot_day2_onboarding_sync_network_data_find_interface",
+      "nautobot_day2_onboarding_sync_network_data_rationale_1290",
+      "nautobot_day2_onboarding_sync_network_data_rationale_1342",
+      "nautobot_day2_onboarding_sync_network_data_write_cables"
+    ],
+    "23": [
+      "nautobot_day2_onboarding_sync_network_data_syncresult",
+      "nautobot_day2_onboarding_sync_network_data_syncresult_fail",
+      "nautobot_day2_onboarding_sync_network_data_syncresult_init",
+      "nautobot_day2_onboarding_sync_network_data_syncresult_skip",
+      "nautobot_day2_onboarding_sync_network_data_syncresult_success"
+    ],
+    "24": [
       "nautobot_day2_init",
       "nautobot_day2_init_nautobotday2config",
       "nautobot_day2_init_rationale_1",
       "nautobotappconfig"
     ],
-    "23": [
-      "nautobot_day2_onboarding_sync_network_data_api_patch",
-      "nautobot_day2_onboarding_sync_network_data_get_active_status_id",
-      "nautobot_day2_onboarding_sync_network_data_write_facts",
-      "nautobot_day2_onboarding_sync_network_data_write_interfaces"
-    ],
-    "24": [
+    "25": [
       "nautobot_day2_onboarding_sync_network_data_find_or_create_software_version",
-      "nautobot_day2_onboarding_sync_network_data_rationale_1532",
-      "nautobot_day2_onboarding_sync_network_data_rationale_1556",
+      "nautobot_day2_onboarding_sync_network_data_rationale_1485",
+      "nautobot_day2_onboarding_sync_network_data_rationale_1509",
       "nautobot_day2_onboarding_sync_network_data_write_inventory_objects"
     ],
-    "25": [
-      "nautobot_day2_onboarding_upload_app_api_save_credentials",
-      "nautobot_day2_onboarding_upload_app_find_external_integration_label",
-      "nautobot_day2_onboarding_upload_app_rationale_318",
-      "nautobot_day2_onboarding_upload_app_rationale_336"
-    ],
     "26": [
-      "nautobot_day2_onboarding_upload_app_api_vendors",
-      "nautobot_day2_onboarding_upload_app_rationale_94",
-      "nautobot_day2_onboarding_vendor_matrix_get_enabled_vendors",
-      "nautobot_day2_onboarding_vendor_matrix_rationale_429"
-    ],
-    "27": [
       "deploy_single_server_nautobot_config",
       "deploy_single_server_nautobot_config_rationale_1"
     ],
-    "28": [
+    "27": [
       "nautobot_day2_chatops_init",
       "nautobot_day2_chatops_init_rationale_1"
     ],
-    "29": [
+    "28": [
       "nautobot_day2_onboarding_init",
       "nautobot_day2_onboarding_init_rationale_1"
     ],
-    "30": [
-      "nautobot_day2_onboarding_sync_network_data_extract_neighbors",
-      "nautobot_day2_onboarding_sync_network_data_rationale_1249"
-    ],
-    "31": [
+    "29": [
       "scripts_deploy_prod",
       "scripts_deploy_prod_sh__entry"
     ],
-    "32": [
+    "30": [
       "scripts_deploy_staging",
       "scripts_deploy_staging_sh__entry"
     ],
-    "33": [
+    "31": [
       "scripts_rollback_prod",
       "scripts_rollback_prod_sh__entry"
     ],
-    "34": [
+    "32": [
       "pkg_nautobot_day2"
     ]
   },
   "cohesion": {
     "0": 0.07419712070874862,
-    "1": 0.08097165991902834,
-    "2": 0.09446693657219973,
-    "3": 0.0946969696969697,
-    "4": 0.125,
+    "1": 0.09446693657219973,
+    "2": 0.08708708708708708,
+    "3": 0.10634920634920635,
+    "4": 0.0946969696969697,
     "5": 0.2217741935483871,
     "6": 0.10752688172043011,
     "7": 0.15384615384615385,
-    "8": 0.19480519480519481,
-    "9": 0.17647058823529413,
-    "10": 0.22794117647058823,
-    "11": 0.20588235294117646,
+    "8": 0.1736842105263158,
+    "9": 0.2679738562091503,
+    "10": 0.17647058823529413,
+    "11": 0.22794117647058823,
     "12": 0.3014705882352941,
-    "13": 0.14166666666666666,
-    "14": 0.2571428571428571,
-    "15": 0.16666666666666666,
-    "16": 0.2,
+    "13": 0.2571428571428571,
+    "14": 0.18181818181818182,
+    "15": 0.2,
+    "16": 0.2857142857142857,
     "17": 0.25,
     "18": 0.2857142857142857,
     "19": 0.3333333333333333,
     "20": 0.3333333333333333,
     "21": 0.3333333333333333,
-    "22": 0.5,
-    "23": 0.5,
+    "22": 0.4,
+    "23": 0.4,
     "24": 0.5,
     "25": 0.5,
-    "26": 0.5,
+    "26": 1.0,
     "27": 1.0,
     "28": 1.0,
     "29": 1.0,
     "30": 1.0,
     "31": 1.0,
-    "32": 1.0,
-    "33": 1.0,
-    "34": 1.0
+    "32": 1.0
   },
   "gods": [
     {
@@ -609,13 +593,13 @@
       "degree": 15
     },
     {
-      "id": "nautobot_day2_onboarding_sync_network_data_sync_device",
-      "label": "sync_device()",
+      "id": "nautobot_day2_onboarding_nautobot_onboard_v2_process_csv",
+      "label": "process_csv()",
       "degree": 15
     },
     {
-      "id": "nautobot_day2_onboarding_nautobot_onboard_v2_process_csv",
-      "label": "process_csv()",
+      "id": "nautobot_day2_onboarding_sync_network_data_sync_device",
+      "label": "sync_device()",
       "degree": 15
     },
     {
@@ -684,22 +668,22 @@
       "why": "inferred connection - not explicitly stated in source; bridges separate communities"
     },
     {
-      "source": "fetch_device_credential()",
-      "target": "fetch_openbao_secret()",
+      "source": "init_cache()",
+      "target": "get_all_platforms()",
       "source_files": [
-        "nautobot_day2/broker/core.py",
-        "nautobot_day2/openbao_client.py"
+        "nautobot_day2/onboarding/nautobot_onboard_v2.py",
+        "nautobot_day2/onboarding/vendor_matrix.py"
       ],
       "confidence": "INFERRED",
       "relation": "calls",
       "why": "inferred connection - not explicitly stated in source; bridges separate communities"
     },
     {
-      "source": "run_diagnostic_commands()",
-      "target": "_find_site_firewall_ip()",
+      "source": "derive_objects()",
+      "target": "get_env_vars()",
       "source_files": [
-        "nautobot_day2/broker/core.py",
-        "nautobot_day2/onboarding/sync_network_data.py"
+        "nautobot_day2/onboarding/create_tenant.py",
+        "nautobot_day2/onboarding/vendor_matrix.py"
       ],
       "confidence": "INFERRED",
       "relation": "calls",
@@ -709,17 +693,17 @@
   "questions": [
     {
       "type": "bridge_node",
-      "question": "Why does `NautobotClient` connect `Community 3` to `Community 1`?",
-      "why": "High betweenness centrality (0.056) - this node is a cross-community bridge."
+      "question": "Why does `NautobotClient` connect `Community 4` to `Community 2`?",
+      "why": "High betweenness centrality (0.057) - this node is a cross-community bridge."
     },
     {
       "type": "bridge_node",
-      "question": "Why does `api_validate_credentials()` connect `Community 14` to `Community 6`, `Community 7`, `Community 9`, `Community 13`, `Community 16`?",
+      "question": "Why does `api_validate_credentials()` connect `Community 13` to `Community 6`, `Community 7`, `Community 10`, `Community 15`, `Community 16`?",
       "why": "High betweenness centrality (0.050) - this node is a cross-community bridge."
     },
     {
       "type": "bridge_node",
-      "question": "Why does `get_device_context()` connect `Community 1` to `Community 3`?",
+      "question": "Why does `get_device_context()` connect `Community 2` to `Community 4`?",
       "why": "High betweenness centrality (0.018) - this node is a cross-community bridge."
     },
     {
@@ -735,12 +719,12 @@
     {
       "type": "low_cohesion",
       "question": "Should `Community 1` be split into smaller, more focused modules?",
-      "why": "Cohesion score 0.08097165991902834 - nodes in this community are weakly interconnected."
+      "why": "Cohesion score 0.09446693657219973 - nodes in this community are weakly interconnected."
     },
     {
       "type": "low_cohesion",
       "question": "Should `Community 2` be split into smaller, more focused modules?",
-      "why": "Cohesion score 0.09446693657219973 - nodes in this community are weakly interconnected."
+      "why": "Cohesion score 0.08708708708708708 - nodes in this community are weakly interconnected."
     }
   ]
 }

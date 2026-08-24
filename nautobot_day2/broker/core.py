@@ -13,7 +13,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "onboarding"))
 import requests
 from sync_network_data import resolve_vendor, get_yaml_block, resolve_creds, _aruba_central_get_token, _find_site_firewall_ip
 from client import NautobotClient
-from openbao_client import fetch_openbao_secret
 
 # Shared connection pool for all outbound API-vendor dispatch calls (Mist /
 # Aruba Central). Previously each dispatch opened its own bare
@@ -89,23 +88,6 @@ def get_device_context(device_name):
         "device_id": device["id"],
         "location_name": location_name,
     }
-def fetch_device_credential(device_context):
-    """
-    Given the dict returned by get_device_context(), fetch the matching
-    credential from OpenBao. secrets_group name must map to a KV path
-    suffix the same way sync_network_data.py already derives it
-    (secrets_group name minus the '-<tenant>' suffix).
-    """
-    sg_name = device_context["secrets_group"]
-    tenant_slug = device_context["tenant_slug"]
-    if not sg_name:
-        raise Exception(f"NO_SECRETS_GROUP: '{device_context['device_name']}' has no secrets_group assigned")
-    suffix_to_strip = f"-{tenant_slug}"
-    if sg_name.endswith(suffix_to_strip):
-        path_suffix = sg_name[: -len(suffix_to_strip)]
-    else:
-        path_suffix = sg_name
-    return fetch_openbao_secret(tenant_slug, path_suffix)
 def run_diagnostic_command(device_name, command):
     """
     Backwards-compatible single-command entry point. Delegates to

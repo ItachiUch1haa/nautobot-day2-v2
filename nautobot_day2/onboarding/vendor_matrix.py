@@ -549,24 +549,6 @@ def get_all_manufacturers():
     }
 
 
-def get_roles_for_vendor(vendor_slug):
-    """Returns all roles used by a vendor across device types."""
-    roles = set()
-    vendor = VENDOR_MATRIX.get(vendor_slug, {})
-    for dt_data in vendor.get("device_types", {}).values():
-        if dt_data["enabled"]:
-            roles.update(dt_data["roles"])
-    return list(roles)
-
-
-def get_sync_handler(vendor_slug, device_type, access_method):
-    """Returns the sync handler name for a combo."""
-    try:
-        return VENDOR_MATRIX[vendor_slug]["device_types"][device_type]["access_methods"][access_method]["sync_handler"]
-    except KeyError:
-        return None
-
-
 def needs_enable_mode(vendor_slug, device_type, access_method):
     """Returns True if this SSH connection needs enable mode."""
     try:
