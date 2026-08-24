@@ -31,32 +31,47 @@ URL = client.url
 # ── Terminal helpers ───────────────────────────────────────────────────────────
 
 def banner(title, char='=', width=65):
+    """Print a banner-style header framed by a repeated character."""
     print(f"\n{char*width}")
     print(f"  {title}")
     print(f"{char*width}")
 
 def section(title):
+    """Print a section header framed by dashes."""
     print(f"\n{'─'*65}")
     print(f"  {title}")
     print(f"{'─'*65}")
 
 def cp(number, title):
+    """Print a checkpoint header with its number and title."""
     print(f"\n{'━'*65}")
     print(f"  ✅  CHECKPOINT {number} — {title}")
     print(f"{'━'*65}")
 
-def ok(msg):    print(f"  ✅  {msg}")
-def fail(msg):  print(f"  ❌  {msg}")
-def warn(msg):  print(f"  ⚠️   {msg}")
-def info(msg):  print(f"  ℹ️   {msg}")
-def step(msg):  print(f"\n  →  {msg}")
+def ok(msg):
+    """Print a success message with a checkmark."""
+    print(f"  ✅  {msg}")
+def fail(msg):
+    """Print a failure message with a cross mark."""
+    print(f"  ❌  {msg}")
+def warn(msg):
+    """Print a warning message."""
+    print(f"  ⚠️   {msg}")
+def info(msg):
+    """Print an informational message."""
+    print(f"  ℹ️   {msg}")
+def step(msg):
+    """Print a step/progress message."""
+    print(f"\n  →  {msg}")
 
 def ask(prompt, default=None):
+    """Prompt the user for input, returning a default if left blank."""
     suffix = f" [{default}]" if default else ""
     val = input(f"\n  {prompt}{suffix}: ").strip()
     return val if val else (default or '')
 
 def choose(prompt, options, default=None):
+    """Prompt the user to choose one option from a numbered list."""
     print(f"\n  {prompt}")
     for i, opt in enumerate(options, 1):
         marker = " (default)" if opt == default else ""
@@ -74,6 +89,7 @@ def choose(prompt, options, default=None):
         print(f"  Enter a number between 1 and {len(options)}")
 
 def multichoose(prompt, options):
+    """Prompt the user to choose one or more options from a numbered list."""
     print(f"\n  {prompt}")
     for i, opt in enumerate(options, 1):
         print(f"    {i}. {opt}")
@@ -92,6 +108,7 @@ def multichoose(prompt, options):
         print("  Invalid selection — try again")
 
 def confirm(prompt, default='y'):
+    """Prompt the user for a yes/no confirmation."""
     val = input(f"\n  {prompt} [{'Y/n' if default=='y' else 'y/N'}]: ").strip().lower()
     if not val:
         return default == 'y'
@@ -101,18 +118,21 @@ def confirm(prompt, default='y'):
 # ── Nautobot helpers ──────────────────────────────────────────────────────────
 
 def fetch_all(endpoint):
+    """Fetch all records from a Nautobot API endpoint, returning an empty list on error."""
     try:
         return client.get_all(endpoint, params={'limit': 200})
     except NautobotAPIError:
         return []
 
 def natural_to_slug(ns):
+    """Strip the trailing natural-key suffix from a natural_slug to recover the plain slug."""
     if not ns:
         return ''
     parts = ns.rsplit('_', 1)
     return parts[0] if len(parts) == 2 and len(parts[1]) == 4 else ns
 
 def get_tenants():
+    """Fetch all tenants from Nautobot as a list of name/slug dicts."""
     tenants = fetch_all('tenancy/tenants')
     return [{'name': t['name'], 'slug': natural_to_slug(t['natural_slug'])} for t in tenants]
 
@@ -129,6 +149,7 @@ def run_script(script, args, dry_run=False):
 # ── Block 1: Tenant resolution ────────────────────────────────────────────────
 
 def block1_new_tenant(dry_run):
+    """Interactively collect a new tenant's info and platform selections, then create the tenant in Nautobot."""
     section("BLOCK 1 — New tenant setup")
 
     # Basic info
@@ -255,6 +276,7 @@ def block1_new_tenant(dry_run):
 
 
 def block1_existing_tenant():
+    """Prompt the user to select an existing tenant and load its saved profile."""
     section("BLOCK 1 — Existing tenant")
 
     tenants = get_tenants()
@@ -287,6 +309,7 @@ def block1_existing_tenant():
 
 
 def block1(dry_run):
+    """Run Block 1 by dispatching to the new-tenant or existing-tenant flow based on user choice."""
     banner("BLOCK 1 — Tenant Resolution")
 
     choice = choose("New or existing customer?",
@@ -301,6 +324,7 @@ def block1(dry_run):
 # ── Credential checkpoint ─────────────────────────────────────────────────────
 
 def checkpoint2_credentials(profile, dry_run):
+    """Run the credential checker for the tenant's profile and re-check once if it fails."""
     section("CHECKPOINT 2 — Credential verification")
     slug         = profile.get('slug', '')
     profile_path = os.path.join(PROFILES_DIR, f"{slug}.json")
@@ -340,6 +364,7 @@ def checkpoint2_credentials(profile, dry_run):
 # ── Block 2: Location Q&A ─────────────────────────────────────────────────────
 
 def block2_location():
+    """Interactively collect and confirm a site's location hierarchy."""
     banner("BLOCK 2 — Location Q&A")
     info("Collecting 6-level location hierarchy for this site")
 
@@ -386,6 +411,7 @@ def block2_location():
 # ── Block 3: Device data ──────────────────────────────────────────────────────
 
 def block3_device_data(profile, site_config):
+    """Collect device data via the web portal, a CSV file, or an existing ready CSV, returning the path to the ready CSV."""
     banner("BLOCK 3 — Device Data")
 
     tenant_slug = profile.get('slug', '')
@@ -451,6 +477,7 @@ def block3_device_data(profile, site_config):
 # ── Checkpoint 3: Device summary ──────────────────────────────────────────────
 
 def checkpoint3_device_summary(ready_csv):
+    """Print a summary of the devices in the ready CSV and confirm whether to proceed with onboarding."""
     import csv as csv_mod
     section("CHECKPOINT 3 — Device summary")
 
@@ -488,12 +515,14 @@ def checkpoint3_device_summary(ready_csv):
 # ── Block 5: Site onboard ─────────────────────────────────────────────────────
 
 def block5_onboard(ready_csv, dry_run):
+    """Run the device onboarding script against the ready CSV."""
     banner("BLOCK 5 — Site Onboard")
     step(f"Running nautobot_onboard_v2.py on {os.path.basename(ready_csv)}...")
     return run_script('nautobot_onboard_v2.py', ['--csv', ready_csv], dry_run=dry_run)
 
 
 def checkpoint4_onboard_result(ready_csv):
+    """Verify and print a summary of the devices onboarded to Nautobot for this site."""
     import csv as csv_mod
     cp(4, "Onboard result")
 
@@ -532,6 +561,7 @@ def checkpoint4_onboard_result(ready_csv):
 # ── Block 6: Sync ─────────────────────────────────────────────────────────────
 
 def block6_sync(profile, site_config, dry_run):
+    """Prompt for a sync scope and run the network data sync script, or skip it."""
     banner("BLOCK 6 — Live Sync")
 
     tenant_slug = profile.get('slug', '')
@@ -565,6 +595,7 @@ def block6_sync(profile, site_config, dry_run):
 
 
 def checkpoint5_sync_result(profile, site_config):
+    """Print the sync result summary from the generated manifest, if found."""
     cp(5, "Sync complete")
     tenant_slug = profile.get('slug', '')
     site_name   = site_config['site_name']
@@ -591,6 +622,7 @@ def checkpoint5_sync_result(profile, site_config):
 # ── Completion report ─────────────────────────────────────────────────────────
 
 def completion_report(profile, site_config, ready_csv):
+    """Print the final onboarding completion summary and next-step commands."""
     banner("ONBOARDING COMPLETE", char='█')
     import csv as csv_mod
 
@@ -618,6 +650,7 @@ def completion_report(profile, site_config, ready_csv):
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
+    """Run the full onboarding orchestration flow from tenant resolution through sync."""
     parser = argparse.ArgumentParser(description='Nautobot site onboarding orchestrator')
     parser.add_argument('--tenant',  help='Skip Block 1 — use existing tenant slug')
     parser.add_argument('--site',    help='Skip Block 2 — use existing site name')

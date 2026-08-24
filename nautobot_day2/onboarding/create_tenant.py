@@ -38,6 +38,7 @@ LAB_MANIFESTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ma
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def slugify(name):
+    """Converts a name into a lowercase, hyphen-separated slug."""
     slug = name.lower().strip()
     slug = re.sub(r'[^\w\s-]', '', slug)
     slug = re.sub(r'[\s_]+', '-', slug)
@@ -45,12 +46,15 @@ def slugify(name):
     return slug.strip('-')
 
 def api_post(endpoint, data):
+    """Performs a POST request against the given endpoint with the provided data."""
     return client.post(endpoint, data)
 
 def exists_by_name(endpoint, name):
+    """Checks whether an object with the given name already exists at the endpoint."""
     return client.find_by_name(endpoint, name)
 
 def get_id_by_name(endpoint, name):
+    """Looks up the id of an object by its name at the given endpoint."""
     return client.get_id_by_name(endpoint, name)
 
 
@@ -72,6 +76,7 @@ def validate_profile(profile):
 
 
 def load_profile(path):
+    """Loads a tenant profile from a JSON file and validates it."""
     with open(path) as f:
         profile = json.load(f)
     return validate_profile(profile)
@@ -192,6 +197,7 @@ def derive_objects(profile):
 # ── Create functions ──────────────────────────────────────────────────────────
 
 def create_tenant_record(profile, dry_run, results):
+    """Creates the tenant record in Nautobot if it doesn't already exist, returning its id."""
     print("\n── Tenant record ────────────────────────────────────")
     name = profile['name']
 
@@ -233,6 +239,7 @@ def create_tenant_record(profile, dry_run, results):
 
 
 def create_namespace(profile, dry_run, results):
+    """Creates the tenant's IP namespace in Nautobot if it doesn't already exist, returning its id."""
     print("\n── IP namespace ─────────────────────────────────────")
     name = profile['slug']
 
@@ -313,6 +320,7 @@ def get_or_create_secret(var_name, dry_run, results):
 
 
 def association_exists(sg_id, access_type, secret_type):
+    """Checks whether a secrets group already has an association with the given access and secret type."""
     r = client.get('extras/secrets-groups-associations', params={
         'secrets_group': sg_id, 'access_type': access_type,
         'secret_type': secret_type, 'limit': 1,
@@ -321,6 +329,7 @@ def association_exists(sg_id, access_type, secret_type):
 
 
 def create_secrets_groups(profile, derived, dry_run, results):
+    """Creates the tenant's secrets groups and wires in their env-var-backed secrets and associations."""
     print("\n── Secrets groups ───────────────────────────────────")
     if not derived['secrets_groups']:
         print("  (none needed for this tenant's selections)")
@@ -396,6 +405,7 @@ def create_secrets_groups(profile, derived, dry_run, results):
 
 
 def create_external_integrations(profile, derived, dry_run, results):
+    """Creates the tenant's external integrations, linking each to its secrets group if any."""
     print("\n── External integrations ────────────────────────────")
     if not derived['integrations']:
         print("  (none needed for this tenant's selections)")
@@ -529,6 +539,7 @@ def write_env_file(profile, derived, dry_run, results):
 
 
 def save_manifest(profile, derived):
+    """Writes a JSON manifest of the tenant's profile and created objects to the manifests directory."""
     manifest = {
         "phase":     "create_tenant",
         "timestamp": datetime.now().isoformat(),
@@ -556,6 +567,7 @@ def save_manifest(profile, derived):
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
+    """Parses CLI args, loads the tenant profile, and runs create_tenant for it."""
     parser = argparse.ArgumentParser(description='Create per-tenant objects in Nautobot')
     parser.add_argument('--profile', required=True, help='Path to tenant profile JSON')
     parser.add_argument('--dry-run', action='store_true', help='Preview only, no writes')

@@ -10,6 +10,7 @@ Deeper operational docs live in [`docs/`](docs/README.md):
 
 | Doc | Covers |
 |---|---|
+| [`docs/00-WORKFLOW.md`](docs/00-WORKFLOW.md) | Branch/release workflow — staging → main → prod, deploy scripts, and keeping the graphify codebase graph current. |
 | [`docs/01-ONBOARDING-GUIDE.md`](docs/01-ONBOARDING-GUIDE.md) | Step-by-step guide for engineers onboarding a new customer or site — web wizard, ChatOps, and CLI paths, plus common failure points. |
 | [`docs/02-COMPONENTS.md`](docs/02-COMPONENTS.md) | Every component grouped by function, and exactly what it's responsible for. |
 | [`docs/03-ARCHITECTURE.md`](docs/03-ARCHITECTURE.md) | Diagrams of the system layout and the three working flows: onboarding, day-2 sync, and Agent Broker troubleshooting. |

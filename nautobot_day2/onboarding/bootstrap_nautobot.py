@@ -91,17 +91,21 @@ CUSTOM_FIELD = {
 # to change at all.
 
 def api_get(endpoint, params=None):
+    """Performs a GET request against the given endpoint and returns the parsed JSON response."""
     r = client.get(endpoint, params=params)
     r.raise_for_status()
     return r.json()
 
 def api_post(endpoint, data):
+    """Performs a POST request against the given endpoint with the provided data."""
     return client.post(endpoint, data)
 
 def exists(endpoint, name):
+    """Checks whether an object with the given name already exists at the endpoint."""
     return client.find_by_name(endpoint, name)
 
 def get_id(endpoint, name):
+    """Looks up the id of an object by its name at the given endpoint."""
     return client.get_id_by_name(endpoint, name)
 
 def get_role_content_types():
@@ -119,6 +123,7 @@ def get_role_content_types():
 # ── Create functions ──────────────────────────────────────────────────────────
 
 def create_tenant_groups(dry_run, results):
+    """Creates any missing tenant groups from TENANT_GROUPS, skipping ones that already exist."""
     print("\n── Tenant groups ────────────────────────────────────")
     for tg in TENANT_GROUPS:
         found, _ = exists('tenancy/tenant-groups', name=tg['name'])
@@ -139,6 +144,7 @@ def create_tenant_groups(dry_run, results):
 
 
 def create_manufacturers(dry_run, results):
+    """Creates any missing manufacturers from vendor_matrix, skipping ones that already exist."""
     print("\n── Manufacturers (from vendor_matrix) ───────────────")
     for slug, label in get_all_manufacturers().items():
         found, _ = exists('dcim/manufacturers', name=label)
@@ -159,6 +165,7 @@ def create_manufacturers(dry_run, results):
 
 
 def create_platforms(dry_run, results):
+    """Creates any missing platforms from vendor_matrix, linking each to its manufacturer."""
     print("\n── Platforms (from vendor_matrix) ───────────────────")
     mfr_map = get_all_manufacturers()  # slug → label
 
@@ -198,6 +205,7 @@ def create_platforms(dry_run, results):
 
 
 def create_location_types(dry_run, results):
+    """Creates the missing location types from LOCATION_TYPES in hierarchy order, resolving each parent id."""
     print("\n── Location types (6-level hierarchy) ───────────────")
     lt_id_cache = {}
 
@@ -242,6 +250,7 @@ def create_location_types(dry_run, results):
 
 
 def create_device_roles(dry_run, results):
+    """Creates any missing device roles from DEVICE_ROLES, skipping ones that already exist."""
     print("\n── Device roles (extras/roles) ──────────────────────")
     content_types = get_role_content_types()
     print(f"  Using content_types: {content_types}")
@@ -270,6 +279,7 @@ def create_device_roles(dry_run, results):
 
 
 def create_tags(dry_run, results):
+    """Creates any missing service tags from SERVICE_TAGS, skipping ones that already exist."""
     print("\n── Service tags ─────────────────────────────────────")
     for tag in SERVICE_TAGS:
         found, _ = exists('extras/tags', name=tag['name'])
@@ -290,6 +300,7 @@ def create_tags(dry_run, results):
 
 
 def create_custom_field(dry_run, results):
+    """Creates the industry_vertical custom field and its choices if not already present."""
     print("\n── Custom field (industry_vertical) ─────────────────")
 
     # custom-fields does not support name filter — fetch all and search
@@ -334,6 +345,7 @@ def create_custom_field(dry_run, results):
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
+    """Parses CLI args and runs all the create_* steps to bootstrap Nautobot's base objects."""
     parser = argparse.ArgumentParser(description='Bootstrap Nautobot base objects')
     parser.add_argument('--dry-run', action='store_true', help='Preview only, no writes')
     args = parser.parse_args()

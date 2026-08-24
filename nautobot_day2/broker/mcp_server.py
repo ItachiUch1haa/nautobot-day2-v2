@@ -43,6 +43,7 @@ BROKER_DURATION = Histogram(
 
 @mcp.custom_route("/metrics", methods=["GET"])
 async def metrics(request: Request) -> PlainTextResponse:
+    """Expose Prometheus metrics for the broker's MCP tool calls."""
     return PlainTextResponse(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 

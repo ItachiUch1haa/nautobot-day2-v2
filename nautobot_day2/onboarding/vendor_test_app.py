@@ -26,6 +26,7 @@ app = Flask(__name__, template_folder=os.path.join(LAB_DIR, 'templates'))
 # ── YAML loader ───────────────────────────────────────────────────────────────
 _yaml_cache = None
 def load_yaml():
+    """Loads and caches the vendor commands YAML file."""
     global _yaml_cache
     if not _yaml_cache:
         with open(YAML_PATH) as f:
@@ -33,6 +34,7 @@ def load_yaml():
     return _yaml_cache
 
 def find_block(vendor_key):
+    """Finds and returns the YAML block for a vendor key across all sections."""
     data = load_yaml()
     for section, vendors in data.items():
         if vendor_key in vendors:
@@ -45,6 +47,7 @@ def find_block(vendor_key):
 
 # ── Facts parser ──────────────────────────────────────────────────────────────
 def parse_facts(raw, yaml_key):
+    """Extracts serial, firmware, model, and hostname facts from raw API or command output."""
     facts = {}
 
     # API response
@@ -107,6 +110,7 @@ def parse_facts(raw, yaml_key):
 
 # ── SSH tester ────────────────────────────────────────────────────────────────
 def test_ssh(ip, vendor_key, block, user, password, enable=''):
+    """Runs the vendor's SSH commands against a device and returns a structured result dict."""
     result = {
         'vendor':      vendor_key,
         'ip':          ip,
@@ -221,6 +225,7 @@ def test_ssh(ip, vendor_key, block, user, password, enable=''):
 
 # ── Mist API tester ───────────────────────────────────────────────────────────
 def test_mist(token, org_id, base_url):
+    """Tests Juniper Mist API auth and inventory access, returning a structured result dict."""
     result = {
         'vendor':      'juniper_mist_ap',
         'data_source': 'api',
@@ -285,6 +290,7 @@ def test_mist(token, org_id, base_url):
 
 # ── Aruba Central tester ──────────────────────────────────────────────────────
 def test_aruba_central(client_id, client_secret, refresh_token, base_url):
+    """Tests Aruba Central API token exchange and AP access, returning a structured result dict."""
     result = {
         'vendor':      'aruba_ap_central_api',
         'data_source': 'api',
@@ -351,10 +357,12 @@ def test_aruba_central(client_id, client_secret, refresh_token, base_url):
 # ── API routes ────────────────────────────────────────────────────────────────
 @app.route('/')
 def index():
+    """Renders the vendor tester web UI page."""
     return render_template('vendor_test.html')
 
 @app.route('/api/vendors')
 def api_vendors():
+    """Returns a JSON summary of all vendors defined in the YAML file."""
     data    = load_yaml()
     vendors = {}
     for section, vmap in data.items():
@@ -370,6 +378,7 @@ def api_vendors():
 
 @app.route('/api/test-device', methods=['POST'])
 def api_test_device():
+    """Handles a device test request by dispatching to the SSH or API tester for the given vendor."""
     data       = request.json
     vendor_key = data.get('vendor','')
     if not vendor_key:
@@ -414,6 +423,7 @@ def api_test_device():
 
 @app.route('/health')
 def health():
+    """Returns a JSON health check with status, port, and YAML path."""
     return jsonify({'status':'ok','port':8082,'yaml':YAML_PATH})
 
 

@@ -56,6 +56,7 @@ results = {'passed': 0, 'failed': 0, 'checks': []}
 
 
 def check(label, ok, detail=''):
+    """Record a check result and print its pass/fail line."""
     results['checks'].append({'label': label, 'ok': ok, 'detail': detail})
     if ok:
         results['passed'] += 1
@@ -66,10 +67,12 @@ def check(label, ok, detail=''):
 
 
 def section(title):
+    """Print a section header separator."""
     print(f"\n\u2500\u2500 {title} " + "\u2500" * max(0, 50 - len(title)))
 
 
 def systemctl_active(service):
+    """Check whether a systemd service is currently active."""
     try:
         r = subprocess.run(
             ['systemctl', 'is-active', service],
@@ -81,6 +84,7 @@ def systemctl_active(service):
 
 
 def port_reachable(port):
+    """Check whether a local HTTP port is reachable."""
     try:
         r = requests.get(f'http://127.0.0.1:{port}/', timeout=3)
         return r.status_code < 500
@@ -89,6 +93,7 @@ def port_reachable(port):
 
 
 def api_count(path, params=None):
+    """Fetch the object count from a Nautobot API endpoint."""
     try:
         r = client.get(path, params=params or {})
         if r.ok:
@@ -99,6 +104,7 @@ def api_count(path, params=None):
 
 
 def main():
+    """Run all preflight checks and write the results manifest."""
     print("=" * 60)
     print("  Nautobot Preflight Check -- Phase 2")
     print(f"  {datetime.now(timezone.utc).isoformat()}")

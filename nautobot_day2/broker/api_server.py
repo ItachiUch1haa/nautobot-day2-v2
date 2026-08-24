@@ -44,6 +44,7 @@ BROKER_DURATION = Histogram(
 
 @app.route("/metrics")
 def metrics():
+    """Expose Prometheus metrics for the broker's REST endpoints."""
     return generate_latest(), 200, {"Content-Type": CONTENT_TYPE_LATEST}
 
 
@@ -116,6 +117,7 @@ def diagnose_batch():
 
 @app.route("/health")
 def health():
+    """Report basic liveness status for the agent broker service."""
     return jsonify({"status": "ok", "service": "agent-broker"})
 
 

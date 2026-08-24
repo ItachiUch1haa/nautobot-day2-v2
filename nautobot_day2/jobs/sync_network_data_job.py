@@ -83,6 +83,8 @@ class SyncNetworkData(Job):
     )
 
     class Meta:
+        """Declares this job's display name, description, and Celery time limits."""
+
         name             = "Sync Network Data"
         description      = "SSH/API sync — serial, firmware, interfaces, LLDP topology"
         commit_default   = True
@@ -91,6 +93,7 @@ class SyncNetworkData(Job):
         time_limit       = 1200
 
     def run(self, tenant, site, category, dry_run):
+        """Fan out a device sync task per device at the given site/tenant/category, then log a dispatch summary."""
         tenant_obj  = tenant
         site_obj    = site
         tenant_slug = _slugify(tenant_obj.name)
@@ -174,6 +177,8 @@ class SyncAllSites(Job):
     dry_run = BooleanVar(default=False)
 
     class Meta:
+        """Declares this job's display name, description, and Celery time limits."""
+
         name             = "Sync All Sites for Tenant"
         description      = "Run network sync for all sites belonging to a tenant"
         commit_default   = True
@@ -182,6 +187,7 @@ class SyncAllSites(Job):
         time_limit       = 4800
 
     def run(self, tenant, category, dry_run):
+        """Sync every device across every site belonging to the tenant, dispatched as one combined fan-out."""
         tenant_obj  = tenant
         tenant_slug = _slugify(tenant_obj.name)
 

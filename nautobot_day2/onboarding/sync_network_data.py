@@ -164,6 +164,7 @@ ERROR_FIXES = {
 
 # ── SyncResult ────────────────────────────────────────────────────────────────
 class SyncResult:
+    """Holds the outcome, writes, and extracted data for one device's sync."""
     def __init__(self, device_name, yaml_key):
         self.device_name = device_name
         self.yaml_key    = yaml_key
@@ -177,9 +178,14 @@ class SyncResult:
         self.writes      = {'interfaces': 0, 'facts': 0, 'cables': 0}
         self.simulated   = SIMULATED_OVERRIDE.get(yaml_key, SIMULATED)
 
-    def success(self):   self.status = 'success'
-    def skip(self, r):   self.status = 'skipped';  self.error_msg = r
+    def success(self):
+        """Mark this result as a successful sync."""
+        self.status = 'success'
+    def skip(self, r):
+        """Mark this result as skipped with reason r."""
+        self.status = 'skipped';  self.error_msg = r
     def fail(self, t, m, f=''):
+        """Mark this result as failed with error type t, message m, and optional fix f."""
         self.status     = 'failed'
         self.error_type = t
         self.error_msg  = m
@@ -190,6 +196,7 @@ class SyncResult:
 _vendor_cmds_cache = None
 
 def load_vendor_commands():
+    """Load and cache the vendor_commands.yaml file, returning the cached copy on later calls."""
     global _vendor_cmds_cache
     if _vendor_cmds_cache:
         return _vendor_cmds_cache
@@ -1247,16 +1254,20 @@ def extract_lldp(raw_output, yaml_key, device_serial='', device_name=''):
 
 # ── Nautobot writer ───────────────────────────────────────────────────────────
 def api_get_all(endpoint, params=None):
+    """Fetch all paginated results from a Nautobot API endpoint."""
     return client.get_all(endpoint, params=params)
 
 def api_post(endpoint, data):
+    """Create a new object at a Nautobot API endpoint."""
     return client.post(endpoint, data)
 
 def api_patch(endpoint, obj_id, data):
+    """Update an existing object at a Nautobot API endpoint by ID."""
     return client.patch(f'{endpoint}/{obj_id}', data)
 
 _status_cache = {}
 def get_active_status_id():
+    """Return the ID of the 'Active' status, caching it after the first lookup."""
     if 'active' not in _status_cache:
         statuses = api_get_all('extras/statuses')
         _status_cache['active'] = next(
@@ -1264,6 +1275,7 @@ def get_active_status_id():
     return _status_cache['active']
 
 def write_interfaces(device_id, interfaces, dry_run):
+    """Create or update device interfaces in Nautobot, returning the count written."""
     if dry_run: return len(interfaces)
     written, active_id = 0, get_active_status_id()
     for intf in interfaces:
@@ -1295,6 +1307,7 @@ def _find_interface(device_id, port_name):
     - Prefix search: find any interface starting with port_name
     """
     def lookup(name):
+        """Return the ID of the interface matching name exactly, or None."""
         r = client.get('dcim/interfaces', params={'device_id': device_id, 'name': name, 'limit': 1})
         if r.ok and r.json().get('count', 0) > 0:
             return r.json()['results'][0]['id']
@@ -1585,6 +1598,7 @@ def write_inventory_objects(device_id, facts, dry_run):
 
 
 def write_facts(device_id, facts, dry_run):
+    """Update a device's serial, custom fields, and comments in Nautobot from extracted facts."""
     if dry_run: return 1
 
     updates = {
@@ -1635,6 +1649,7 @@ def write_facts(device_id, facts, dry_run):
 _C = {}
 
 def init_cache():
+    """Load secrets groups, roles, platforms, and the active status ID into the module cache."""
     print('  Loading Nautobot cache...')
     sgs       = api_get_all('extras/secrets-groups')
     roles     = api_get_all('extras/roles')
@@ -1653,11 +1668,13 @@ def init_cache():
           f'Platforms: {len(_C["plat_id_to_slug"])}')
 
 def natural_to_slug(ns):
+    """Strip the trailing 4-character disambiguation suffix from a natural_slug, if present."""
     if not ns: return ''
     parts = ns.rsplit('_', 1)
     return parts[0] if len(parts)==2 and len(parts[1])==4 else ns
 
 def get_devices(site_name, tenant_slug, category, failed_only, last_failed):
+    """Fetch and filter devices for a site/tenant, enriched with secrets group, role, and platform info."""
     r = client.get('dcim/locations', params={'name': site_name, 'limit': 10})
     site_id = next((l['id'] for l in r.json().get('results',[])
                     if l['name']==site_name), None)
@@ -1768,6 +1785,7 @@ def _parse_wtp_status_blocks(raw_text):
 
 # ── Main sync loop ────────────────────────────────────────────────────────────
 def sync_device(device, dry_run):
+    """Fetch a device's data via its resolved vendor handler and write it into Nautobot, returning a SyncResult."""
     name        = device['name']
     sg_name     = device['_sg_name']
     role_name   = device['_role_name']
@@ -1891,6 +1909,7 @@ def sync_device(device, dry_run):
 
 # ── Reporter ──────────────────────────────────────────────────────────────────
 def print_results(results, dry_run):
+    """Print a formatted summary table of sync results, per-block stats, and failures; return whether any failed."""
     print(f"\n{'='*70}")
     print(f"  {'SYNC RESULTS (DRY RUN)' if dry_run else 'SYNC RESULTS'}")
     print(f"{'='*70}\n")
@@ -1944,6 +1963,7 @@ def print_results(results, dry_run):
 
 # ── Manifest ──────────────────────────────────────────────────────────────────
 def load_last_failed(tenant, site):
+    """Return the set of device names that failed in the last sync manifest for this tenant/site, if any."""
     path = os.path.join(MANIFESTS_DIR, f'sync_last_{tenant}_{site}.json')
     if os.path.exists(path):
         with open(path) as f:
@@ -1951,6 +1971,7 @@ def load_last_failed(tenant, site):
     return set()
 
 def save_manifest(tenant, site, results):
+    """Write the sync results as both a latest-run manifest and a timestamped history file."""
     os.makedirs(MANIFESTS_DIR, exist_ok=True)
     failed = [r.device_name for r in results if r.status=='failed']
     manifest = {
@@ -1985,6 +2006,7 @@ def get_devices_for_site(site_name, tenant_slug, category='all'):
 
 
 def main():
+    """Parse CLI args and run the network data sync for the given site/tenant, printing results."""
     parser = argparse.ArgumentParser(description='Sync network data into Nautobot (YAML-driven)')
     parser.add_argument('--site',        required=True)
     parser.add_argument('--tenant',      required=True)

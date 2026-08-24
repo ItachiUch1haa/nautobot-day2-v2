@@ -7,6 +7,7 @@ specific concerns.
 
 | Doc | Covers |
 |---|---|
+| [`00-WORKFLOW.md`](./00-WORKFLOW.md) | Branch/release workflow — staging → main → prod, deploy scripts, and keeping the graphify codebase graph current. |
 | [`01-ONBOARDING-GUIDE.md`](./01-ONBOARDING-GUIDE.md) | Step-by-step guide for engineers onboarding a new customer or site — web wizard, ChatOps, and CLI paths, plus common failure points. |
 | [`02-COMPONENTS.md`](./02-COMPONENTS.md) | Every component grouped by function, and exactly what it's responsible for. |
 | [`03-ARCHITECTURE.md`](./03-ARCHITECTURE.md) | Diagrams of the system layout and the three working flows: onboarding, day-2 sync, and Agent Broker troubleshooting. |

@@ -88,15 +88,19 @@ class NautobotClient:
         return f"{self.url}/api/{endpoint.strip('/')}/"
 
     def get(self, endpoint, params=None):
+        """Send a GET request to a Nautobot API endpoint."""
         return self.session.get(self._endpoint_url(endpoint), params=params, timeout=self.timeout)
 
     def post(self, endpoint, data):
+        """Send a POST request with a JSON payload to a Nautobot API endpoint."""
         return self.session.post(self._endpoint_url(endpoint), json=data, timeout=self.timeout)
 
     def patch(self, endpoint, data):
+        """Send a PATCH request with a JSON payload to a Nautobot API endpoint."""
         return self.session.patch(self._endpoint_url(endpoint), json=data, timeout=self.timeout)
 
     def delete(self, endpoint):
+        """Send a DELETE request to a Nautobot API endpoint."""
         return self.session.delete(self._endpoint_url(endpoint), timeout=self.timeout)
 
     def get_absolute(self, url, params=None):
@@ -148,6 +152,7 @@ class NautobotClient:
         return False, None
 
     def get_id_by_name(self, endpoint, name):
+        """Look up an object by name and return its id, or None if not found."""
         found, obj = self.find_by_name(endpoint, name)
         return obj["id"] if found else None
 

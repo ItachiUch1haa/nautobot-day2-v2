@@ -31,6 +31,7 @@ from vendor_matrix import get_env_vars, needs_enable_mode, VENDOR_MATRIX
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def slugify(name):
+    """Converts a name into a lowercase, hyphen-separated slug."""
     slug = name.lower().strip()
     slug = re.sub(r'[^\w\s-]', '', slug)
     slug = re.sub(r'[\s_]+', '-', slug)
@@ -39,6 +40,7 @@ def slugify(name):
 
 
 def load_profile(path):
+    """Loads a tenant profile JSON file, deriving its slug if not already set."""
     with open(path) as f:
         profile = json.load(f)
     if 'slug' not in profile:
@@ -94,6 +96,7 @@ def mask_value(val):
 # ── Core check ────────────────────────────────────────────────────────────────
 
 def check_credentials(profile, show_values=False):
+    """Checks the tenant's env file for missing or empty expected credential vars and prints a report."""
     slug     = profile['slug']
     env_path = os.path.join(LAB_PROFILES_DIR, f"{slug}.env")
 
@@ -228,6 +231,7 @@ def list_tenants():
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
+    """Parses CLI args and runs either tenant listing or credential checking."""
     parser = argparse.ArgumentParser(
         description='Verify tenant credentials are filled in env file'
     )

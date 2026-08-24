@@ -175,9 +175,11 @@ def get_nautobot_cache():
         return _nautobot_cache
 
     def fetch_all(endpoint):
+        """Fetches all results from a Nautobot API endpoint, paginated 200 at a time."""
         return client.get_all(endpoint, params={'limit': 200})
 
     def natural_to_slug(ns):
+        """Strips the trailing _xxxx suffix from a natural_slug to recover the original slug."""
         if not ns:
             return ''
         parts = ns.rsplit('_', 1)
@@ -201,15 +203,19 @@ def get_nautobot_cache():
 # ── Validators ────────────────────────────────────────────────────────────────
 
 def normalize_vendor(raw):
+    """Maps a raw vendor string to its canonical vendor name, or None if unrecognized."""
     return VENDOR_ALIASES.get(raw.lower().strip(), None)
 
 def normalize_role(raw):
+    """Maps a raw role string to its canonical role name, or None if unrecognized."""
     return ROLE_ALIASES.get(raw.lower().strip(), None)
 
 def normalize_managed_by(raw):
+    """Maps a raw managed_by string to its canonical value, defaulting to 'ssh'."""
     return MANAGED_BY_ALIASES.get(raw.lower().strip(), 'ssh')
 
 def normalize_platform(raw):
+    """Maps a raw platform string to its canonical platform alias, or the lowercased raw value if unrecognized."""
     if not raw:
         return None
     return PLATFORM_ALIASES.get(raw.lower().strip(), raw.lower().strip())
@@ -451,6 +457,7 @@ OUTPUT_COLS = [
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
+    """Parses CLI args, validates and enriches the engineer CSV against the site config, and writes the onboarding-ready CSV."""
     parser = argparse.ArgumentParser(description='Validate and prepare site CSV for onboarding')
     parser.add_argument('--csv',         required=True, help='Engineer CSV path')
     parser.add_argument('--site-config', required=True, help='Site config JSON path')

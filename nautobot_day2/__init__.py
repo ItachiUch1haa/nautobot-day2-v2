@@ -6,6 +6,8 @@ from nautobot.apps import NautobotAppConfig
 
 
 class NautobotDay2Config(NautobotAppConfig):
+    """App configuration that registers the Nautobot Day 2 Operations app with Nautobot."""
+
     name = "nautobot_day2"
     verbose_name = "Nautobot Day 2 Operations"
     description = (

@@ -18,6 +18,8 @@ class MistSyncJob(Job):
     """Sync all devices from Juniper Mist into Nautobot."""
 
     class Meta:
+        """Declares the job's display name and description shown in the Nautobot job list."""
+
         name = "Juniper Mist: Sync Devices to Nautobot"
         description = "Pulls APs, Switches, SRX from Mist org. Multi-tenant: one run per customer."
         commit_default = False

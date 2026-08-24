@@ -29,15 +29,26 @@ YAML_PATH     = os.environ.get(
 sys.path.insert(0, LAB_DIR)
 
 # ── Terminal helpers ──────────────────────────────────────────────────────────
-def ok(msg):   print(f"  ✅  {msg}")
-def fail(msg): print(f"  ❌  {msg}")
-def warn(msg): print(f"  ⚠️   {msg}")
-def info(msg): print(f"  ℹ️   {msg}")
-def hdr(msg):  print(f"\n  {'─'*60}\n  {msg}\n  {'─'*60}")
+def ok(msg):
+    """Prints a success message prefixed with a green checkmark."""
+    print(f"  ✅  {msg}")
+def fail(msg):
+    """Prints a failure message prefixed with a red X."""
+    print(f"  ❌  {msg}")
+def warn(msg):
+    """Prints a warning message prefixed with a warning sign."""
+    print(f"  ⚠️   {msg}")
+def info(msg):
+    """Prints an informational message prefixed with an info icon."""
+    print(f"  ℹ️   {msg}")
+def hdr(msg):
+    """Prints a section header surrounded by horizontal divider lines."""
+    print(f"\n  {'─'*60}\n  {msg}\n  {'─'*60}")
 
 
 # ── YAML loader ───────────────────────────────────────────────────────────────
 def load_yaml():
+    """Loads and returns the vendor commands YAML file."""
     with open(YAML_PATH) as f:
         return yaml.safe_load(f)
 
@@ -53,6 +64,7 @@ def find_block(vendor_key):
     return None
 
 def list_vendors():
+    """Prints all vendor blocks defined in vendor_commands.yaml, grouped by section."""
     data = load_yaml()
     print(f"\n  {'─'*65}")
     print(f"  Available vendors in vendor_commands.yaml")
@@ -69,6 +81,7 @@ def list_vendors():
 
 # ── SSH test ──────────────────────────────────────────────────────────────────
 def test_ssh(ip, vendor_key, block, user, password, enable=''):
+    """Tests SSH connectivity, runs the vendor's configured commands, and previews parsed facts."""
     hdr(f"SSH CONNECTION TEST — {vendor_key} @ {ip}")
 
     try:
@@ -189,6 +202,7 @@ def test_ssh(ip, vendor_key, block, user, password, enable=''):
 
 # ── API tests ─────────────────────────────────────────────────────────────────
 def test_mist_api(token, org_id, base_url):
+    """Tests Juniper Mist API auth and previews org inventory and device stats."""
     hdr(f"JUNIPER MIST API TEST — {base_url}")
 
     info(f"Base URL : {base_url}")
@@ -254,6 +268,7 @@ def test_mist_api(token, org_id, base_url):
 
 
 def test_aruba_central_api(client_id, client_secret, refresh_token, base_url):
+    """Tests Aruba Central API OAuth token exchange and previews APs and switches."""
     hdr(f"ARUBA CENTRAL API TEST — {base_url}")
 
     info(f"Base URL      : {base_url}")
@@ -382,6 +397,7 @@ def parse_facts_preview(raw, yaml_key):
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
+    """Parses CLI arguments and runs the requested vendor connectivity test."""
     parser = argparse.ArgumentParser(
         description='Test vendor connectivity and command parsing before onboarding'
     )

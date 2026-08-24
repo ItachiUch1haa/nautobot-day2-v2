@@ -64,12 +64,14 @@ app.secret_key = os.urandom(24)
 # ── Nautobot API helpers ──────────────────────────────────────────────────────
 
 def fetch_all(endpoint, params=None):
+    """Fetch all paginated results from a Nautobot API endpoint, returning an empty list on error."""
     try:
         return client.get_all(endpoint, params=params)
     except NautobotAPIError:
         return []
 
 def natural_to_slug(ns):
+    """Strip the trailing 4-character disambiguation suffix from a natural_slug, if present."""
     if not ns:
         return ''
     parts = ns.rsplit('_', 1)
@@ -1233,10 +1235,12 @@ def api_download_ready_csv(site_name):
 
 @app.route('/')
 def index():
+    """Render the onboarding portal's main page."""
     return render_template('index.html')
 
 @app.route('/health')
 def health():
+    """Return a simple health-check response including the configured Nautobot URL."""
     return jsonify({'status': 'ok', 'nautobot': URL})
 
 

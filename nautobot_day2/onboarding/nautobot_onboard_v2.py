@@ -41,12 +41,15 @@ _C = {}
 # call these by name) don't need to change.
 
 def api_get_all(endpoint, params=None):
+    """Fetches all pages of results from a Nautobot API endpoint."""
     return client.get_all(endpoint, params=params)
 
 def api_post(endpoint, data):
+    """Posts data to create a new object at a Nautobot API endpoint."""
     return client.post(endpoint, data)
 
 def api_patch(endpoint, obj_id, data):
+    """Patches an existing object at a Nautobot API endpoint by ID."""
     return client.patch(f'{endpoint}/{obj_id}', data)
 
 
@@ -607,6 +610,7 @@ def get_or_create_controller_group(name, controller_id, tenant_id,
 
 
 def link_device_to_group(device_id, group_id, dry_run):
+    """Links a device to a controller-managed device group via PATCH."""
     if dry_run or str(device_id).startswith('DRY:') or str(group_id).startswith('DRY:'):
         return 'would link'
     r = api_patch('dcim/devices', device_id,
@@ -623,6 +627,7 @@ REQUIRED_COLS = [
 ]
 
 def load_csv(path):
+    """Loads and validates the nautobot_ready CSV, returning its rows as dicts."""
     with open(path, newline='') as f:
         reader = csv.DictReader(f)
         rows   = list(reader)
@@ -639,6 +644,7 @@ def load_csv(path):
 # ── Main processor ────────────────────────────────────────────────────────────
 
 def process_csv(rows, dry_run):
+    """Creates locations, device types, IPs, devices, stacks, HA groups, and controllers in Nautobot for each CSV row."""
     active_id  = _C['statuses']['Active']
     loc_cache  = {}   # site_key → site_id
     dt_cache   = {}   # vendor|model → device_type_id
@@ -864,6 +870,7 @@ def process_csv(rows, dry_run):
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
+    """Parses CLI args, loads the CSV, onboards devices into Nautobot, and writes a summary manifest."""
     parser = argparse.ArgumentParser(description='Onboard devices into Nautobot')
     parser.add_argument('--csv',     required=True, help='Path to nautobot_ready CSV')
     parser.add_argument('--dry-run', action='store_true', help='Preview only, no writes')
