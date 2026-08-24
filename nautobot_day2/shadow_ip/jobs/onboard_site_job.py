@@ -1,0 +1,63 @@
+"""
+REST-triggerable wrapper around site_onboarding.onboard_site(). Exists
+because onboarding_mcp (and, in principle, the wizard) run as standalone
+processes with no Django ORM access -- exactly like the wizard triggers
+SyncNetworkData over REST (POST extras/jobs/{id}/run) instead of importing
+Job code directly, onboarding_mcp's set_site tool triggers this Job the
+same way rather than calling onboard_site() in-process.
+"""
+from nautobot.extras.jobs import Job, StringVar
+
+from ..site_onboarding import ShadowIPValidationError, onboard_site
+
+
+class OnboardSite(Job):
+    """Create a site's real+shadow Prefix pair and link them, before any device import."""
+
+    class Meta:
+        """Declares the job's display name and description shown in the Nautobot job list."""
+
+        name = "Shadow IP: Onboard Site (real+shadow prefix pair)"
+        description = (
+            "Creates a site's real Prefix (in its customer namespace) and shadow "
+            "Prefix (in Global), and links them via nat_shadow_prefix. Run once per "
+            "site, before any device/IP is created for it."
+        )
+        has_sensitive_variables = False
+
+    customer_ns_name = StringVar(
+        label="Customer namespace",
+        description="Name of the tenant's IP namespace (created during tenant onboarding)",
+    )
+    site_name = StringVar(
+        label="Site name",
+        description="Name of the site Location, child of the customer's top-level Location",
+    )
+    real_cidr = StringVar(
+        label="Real CIDR",
+        description="The site's real subnet, e.g. 10.0.1.0/24",
+    )
+    shadow_cidr = StringVar(
+        label="Shadow CIDR",
+        description="The paired shadow subnet in 100.64.0.0/10, same prefix length as real_cidr",
+    )
+
+    def run(self, customer_ns_name, site_name, real_cidr, shadow_cidr):
+        """Validate and create the real/shadow Prefix pair, logging the result."""
+        try:
+            real_prefix, shadow_prefix = onboard_site(
+                customer_ns_name, site_name, real_cidr, shadow_cidr
+            )
+        except ShadowIPValidationError as e:
+            self.logger.error(str(e))
+            raise
+        self.logger.info(
+            f"Onboarded site '{site_name}' ({customer_ns_name}): "
+            f"real prefix {real_prefix.prefix} <-> shadow prefix {shadow_prefix.prefix}"
+        )
+        return {
+            "real_prefix_id": str(real_prefix.id),
+            "real_prefix": str(real_prefix.prefix),
+            "shadow_prefix_id": str(shadow_prefix.id),
+            "shadow_prefix": str(shadow_prefix.prefix),
+        }

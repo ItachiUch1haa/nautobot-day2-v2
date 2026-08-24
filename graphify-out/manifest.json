@@ -24,10 +24,10 @@
     "semantic_hash": "27c2b4add07f1393d422a8af9488a3d3"
   },
   "nautobot_day2/broker/core.py": {
-    "mtime": 1787558484.2822492,
-    "seen": 1787558504.1855726,
-    "ast_hash": "0497da140d843e651c31c010dd11348c",
-    "semantic_hash": "0497da140d843e651c31c010dd11348c"
+    "mtime": 1787566505.619037,
+    "seen": 1787566837.1344035,
+    "ast_hash": "01b54a1d3e222c0d9b4980bdb36c1ce6",
+    "semantic_hash": "01b54a1d3e222c0d9b4980bdb36c1ce6"
   },
   "nautobot_day2/broker/mcp_server.py": {
     "mtime": 1787559603.6507823,
@@ -60,10 +60,10 @@
     "semantic_hash": "584d44762e3568d7f08496be6a8ddfe4"
   },
   "nautobot_day2/jobs/__init__.py": {
-    "mtime": 1787557502.9775515,
-    "seen": 1787557731.246852,
-    "ast_hash": "b6d054e087c5c2b6d2c68b4238acde42",
-    "semantic_hash": "b6d054e087c5c2b6d2c68b4238acde42"
+    "mtime": 1787565021.284232,
+    "seen": 1787566837.136582,
+    "ast_hash": "638fdc42ff4413ca187c7b88908070a8",
+    "semantic_hash": "638fdc42ff4413ca187c7b88908070a8"
   },
   "nautobot_day2/jobs/mist_sync.py": {
     "mtime": 1787559612.5376475,
@@ -108,10 +108,10 @@
     "semantic_hash": "e7e192a346707dd949b62cf8a25642d8"
   },
   "nautobot_day2/onboarding/nautobot_prepare.py": {
-    "mtime": 1787559648.3610437,
-    "seen": 1787559753.985567,
-    "ast_hash": "860537af0fa7e9bc996bdd7287f74095",
-    "semantic_hash": "860537af0fa7e9bc996bdd7287f74095"
+    "mtime": 1787565864.7668946,
+    "seen": 1787566837.139582,
+    "ast_hash": "90bcf55d6747105b278aa269b4724936",
+    "semantic_hash": "90bcf55d6747105b278aa269b4724936"
   },
   "nautobot_day2/onboarding/onboard_cli.py": {
     "mtime": 1787559661.480776,
@@ -132,10 +132,10 @@
     "semantic_hash": "9745a795c22678b2be73e72029e29749"
   },
   "nautobot_day2/onboarding/sync_network_data.py": {
-    "mtime": 1787559685.8397398,
-    "seen": 1787559753.985567,
-    "ast_hash": "c89cd4e216b8916dbebb247bde635ec7",
-    "semantic_hash": "c89cd4e216b8916dbebb247bde635ec7"
+    "mtime": 1787566547.0005171,
+    "seen": 1787566837.1410995,
+    "ast_hash": "97743a58a63b42b888ff94ff8da4df5c",
+    "semantic_hash": "97743a58a63b42b888ff94ff8da4df5c"
   },
   "nautobot_day2/onboarding/upload_app.py": {
     "mtime": 1787559694.5282269,
@@ -174,10 +174,10 @@
     "semantic_hash": "8e6efeeb3a28fc1a3edbb71913441a4c"
   },
   "pyproject.toml": {
-    "mtime": 1787557503.0065782,
-    "seen": 1787557731.2479618,
-    "ast_hash": "129882f296dd8009a3d4afec7b189285",
-    "semantic_hash": "129882f296dd8009a3d4afec7b189285"
+    "mtime": 1787566581.907667,
+    "seen": 1787566837.1430998,
+    "ast_hash": "fcd268cf19a1bfa8fa9358b4b3fe965a",
+    "semantic_hash": "fcd268cf19a1bfa8fa9358b4b3fe965a"
   },
   "scripts/deploy-prod.sh": {
     "mtime": 1787557503.0080864,
@@ -196,5 +196,149 @@
     "seen": 1787557731.2479618,
     "ast_hash": "cdaffb750adcb9ca2c503cc5e778affd",
     "semantic_hash": "cdaffb750adcb9ca2c503cc5e778affd"
+  },
+  "nautobot_day2/onboarding_mcp/controllers/aruba_central_client.py": {
+    "mtime": 1787565626.103609,
+    "seen": 1787566837.1420996,
+    "ast_hash": "1e13343bda97aeefe793dcf558de4ce1",
+    "semantic_hash": "1e13343bda97aeefe793dcf558de4ce1"
+  },
+  "nautobot_day2/onboarding_mcp/controllers/base.py": {
+    "mtime": 1787565523.8324702,
+    "seen": 1787566837.1420996,
+    "ast_hash": "31b13a7c660899fb9faf637401839418",
+    "semantic_hash": "31b13a7c660899fb9faf637401839418"
+  },
+  "nautobot_day2/onboarding_mcp/controllers/local_ssh_master.py": {
+    "mtime": 1787565556.5827813,
+    "seen": 1787566837.1420996,
+    "ast_hash": "73e62dcbf7e1d002d745763a918250ab",
+    "semantic_hash": "73e62dcbf7e1d002d745763a918250ab"
+  },
+  "nautobot_day2/onboarding_mcp/controllers/meraki_client.py": {
+    "mtime": 1787565570.8752384,
+    "seen": 1787566837.1420996,
+    "ast_hash": "a85d6ffd5ff9493bcef07a504690aaa4",
+    "semantic_hash": "a85d6ffd5ff9493bcef07a504690aaa4"
+  },
+  "nautobot_day2/onboarding_mcp/controllers/mist_client.py": {
+    "mtime": 1787565580.7018166,
+    "seen": 1787566837.1420996,
+    "ast_hash": "0ff4fcfb0cd1ae39a6f1b92a8faf4432",
+    "semantic_hash": "0ff4fcfb0cd1ae39a6f1b92a8faf4432"
+  },
+  "nautobot_day2/onboarding_mcp/controllers/other_generic.py": {
+    "mtime": 1787565635.114475,
+    "seen": 1787566837.1420996,
+    "ast_hash": "7b5a1cb04ac236e2fe6a947dffd717d3",
+    "semantic_hash": "7b5a1cb04ac236e2fe6a947dffd717d3"
+  },
+  "nautobot_day2/onboarding_mcp/deploy/credential_writer.py": {
+    "mtime": 1787565935.0506947,
+    "seen": 1787566837.1420996,
+    "ast_hash": "011e20e34b65d3d287ba9720a1cced93",
+    "semantic_hash": "011e20e34b65d3d287ba9720a1cced93"
+  },
+  "nautobot_day2/onboarding_mcp/deploy/nautobot_deployer.py": {
+    "mtime": 1787566195.2215104,
+    "seen": 1787566837.1420996,
+    "ast_hash": "bc340549ae99182303d4d5bbc09c0068",
+    "semantic_hash": "bc340549ae99182303d4d5bbc09c0068"
+  },
+  "nautobot_day2/onboarding_mcp/intake/ap_discovery.py": {
+    "mtime": 1787565814.1340485,
+    "seen": 1787566837.1420996,
+    "ast_hash": "4b49bd9227200cee313808f40140de1c",
+    "semantic_hash": "4b49bd9227200cee313808f40140de1c"
+  },
+  "nautobot_day2/onboarding_mcp/intake/static_device.py": {
+    "mtime": 1787565714.7387044,
+    "seen": 1787566837.1420996,
+    "ast_hash": "0fed163dd236e28188c60ddd5d847c45",
+    "semantic_hash": "0fed163dd236e28188c60ddd5d847c45"
+  },
+  "nautobot_day2/onboarding_mcp/server.py": {
+    "mtime": 1787566393.4030156,
+    "seen": 1787566837.1420996,
+    "ast_hash": "0d282bda5644df87b0f137801daeec84",
+    "semantic_hash": "0d282bda5644df87b0f137801daeec84"
+  },
+  "nautobot_day2/onboarding_mcp/session/state_machine.py": {
+    "mtime": 1787565154.0586722,
+    "seen": 1787566837.1420996,
+    "ast_hash": "c0ed020458ef2df06c61629286cd2b38",
+    "semantic_hash": "c0ed020458ef2df06c61629286cd2b38"
+  },
+  "nautobot_day2/onboarding_mcp/session/test_state_machine.py": {
+    "mtime": 1787565173.2120404,
+    "seen": 1787566837.1420996,
+    "ast_hash": "3f3850f78647d031e0edac7f91babb98",
+    "semantic_hash": "3f3850f78647d031e0edac7f91babb98"
+  },
+  "nautobot_day2/onboarding_mcp/tools_schema.py": {
+    "mtime": 1787566338.6107895,
+    "seen": 1787566837.1420996,
+    "ast_hash": "d0fafefa9f475c132919c7e6f7080463",
+    "semantic_hash": "d0fafefa9f475c132919c7e6f7080463"
+  },
+  "nautobot_day2/shadow_ip/__init__.py": {
+    "mtime": 1787564865.105234,
+    "seen": 1787566837.1430998,
+    "ast_hash": "d970a93eabcbad4ea4c477abac42ff95",
+    "semantic_hash": "d970a93eabcbad4ea4c477abac42ff95"
+  },
+  "nautobot_day2/shadow_ip/custom_fields.py": {
+    "mtime": 1787565007.2374213,
+    "seen": 1787566837.1430998,
+    "ast_hash": "05933e26fecdfb0bee0f32fd8f884176",
+    "semantic_hash": "05933e26fecdfb0bee0f32fd8f884176"
+  },
+  "nautobot_day2/shadow_ip/integrations/__init__.py": {
+    "mtime": 1787564958.0023031,
+    "seen": 1787566837.1430998,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "nautobot_day2/shadow_ip/integrations/fortigate_client.py": {
+    "mtime": 1787564954.5354667,
+    "seen": 1787566837.1430998,
+    "ast_hash": "f5e24223d19743da50e505cbde846172",
+    "semantic_hash": "f5e24223d19743da50e505cbde846172"
+  },
+  "nautobot_day2/shadow_ip/jobs/__init__.py": {
+    "mtime": 1787565012.094339,
+    "seen": 1787566837.1430998,
+    "ast_hash": "e5ec47c028958d1c0d7fe64dfdca8f74",
+    "semantic_hash": "e5ec47c028958d1c0d7fe64dfdca8f74"
+  },
+  "nautobot_day2/shadow_ip/jobs/catalog_shadow_ip.py": {
+    "mtime": 1787566040.7165053,
+    "seen": 1787566837.1430998,
+    "ast_hash": "b61d76bfe3696182977df02d63306fb6",
+    "semantic_hash": "b61d76bfe3696182977df02d63306fb6"
+  },
+  "nautobot_day2/shadow_ip/jobs/onboard_site_job.py": {
+    "mtime": 1787564927.6180787,
+    "seen": 1787566837.1430998,
+    "ast_hash": "3850fd9d70d7be46eff2ad551058c265",
+    "semantic_hash": "3850fd9d70d7be46eff2ad551058c265"
+  },
+  "nautobot_day2/shadow_ip/jobs/reconcile_device_ips.py": {
+    "mtime": 1787564973.0543323,
+    "seen": 1787566837.1430998,
+    "ast_hash": "7a7859ea33649df44df87ae18ba38cd9",
+    "semantic_hash": "7a7859ea33649df44df87ae18ba38cd9"
+  },
+  "nautobot_day2/shadow_ip/shadow_math.py": {
+    "mtime": 1787564872.954894,
+    "seen": 1787566837.1430998,
+    "ast_hash": "a8d0553ac824070b5f67229f94bf9402",
+    "semantic_hash": "a8d0553ac824070b5f67229f94bf9402"
+  },
+  "nautobot_day2/shadow_ip/site_onboarding.py": {
+    "mtime": 1787564916.3575616,
+    "seen": 1787566837.1430998,
+    "ast_hash": "e2f001e3941d430cb534b257442ea3a3",
+    "semantic_hash": "e2f001e3941d430cb534b257442ea3a3"
   }
 }

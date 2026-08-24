@@ -90,6 +90,11 @@ ROLE_ALIASES = {
     'distribution-switch':'distribution-switch',
     'dist-switch':        'distribution-switch',
     'dist_switch':        'distribution-switch',
+    'sdwan-edge':         'sdwan-edge',
+    'sdwan_edge':         'sdwan-edge',
+    'sdwan':              'sdwan-edge',
+    'sd-wan':             'sdwan-edge',
+    'sd-wan-edge':        'sdwan-edge',
 }
 
 MANAGED_BY_ALIASES = {
@@ -241,6 +246,7 @@ def vendor_to_device_type(vendor, role):
         'ap':                  'ap',
         'branch-fw':           'firewall',
         'wan-router':          'switch',
+        'sdwan-edge':          'switch',
         'nac':                 'nac',
     }
     return role_to_dtype.get(role)

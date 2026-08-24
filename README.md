@@ -36,6 +36,10 @@ nautobot_day2/            installable Python package (the Nautobot App)
 │   ├── core.py             shared logic: Nautobot lookup -> OpenBao credential -> Nornir dispatch
 │   ├── api_server.py       REST wrapper (port 8082)
 │   └── mcp_server.py       MCP wrapper (port 8090) — same logic, different transport
+├── onboarding_mcp/         conversational onboarding — MCP server (port 8091), state machine,
+│                           controller adapters (local SSH / Meraki / Mist / Aruba Central), deploy
+├── shadow_ip/              real-to-shadow IP mapping (RFC 6598) — catalogs the NAT the FortiGate
+│                           NVA already performs; onboard_site(), CatalogShadowIP, ReconcileDeviceIPs
 ├── onboarding/             onboarding pipeline + vendor sync engine
 │   ├── upload_app.py       web onboarding wizard (Flask, port 8081) — see below
 │   ├── templates/index.html   the 6-step wizard UI

@@ -76,6 +76,37 @@ def get_device_context(device_name):
         loc_resp = client.get_absolute(location["url"])
         if loc_resp.ok:
             location_name = loc_resp.json().get("name")
+
+    # controller_managed / managing_controller (onboarding_mcp's shadow_ip
+    # custom fields, Phase 5 generalization of the FortiAP->FortiGate
+    # redirect below) -- read straight off the already-fetched device
+    # payload's custom_fields, no extra API call needed for the flag
+    # itself. managing_controller's "object" custom field serialization
+    # shape is PENDING LIVE VERIFICATION (see shadow_ip/custom_fields.py) --
+    # handle either a nested {url: ...} stub or a bare id defensively,
+    # and never let a resolution failure here break a device lookup that
+    # otherwise succeeded.
+    custom_fields = device.get("custom_fields") or {}
+    controller_managed = bool(custom_fields.get("controller_managed"))
+    managing_controller_ip = None
+    managing_controller = custom_fields.get("managing_controller")
+    if controller_managed and managing_controller:
+        try:
+            if isinstance(managing_controller, dict) and managing_controller.get("url"):
+                ctrl_resp = client.get_absolute(managing_controller["url"])
+            else:
+                ctrl_id = managing_controller.get("id") if isinstance(managing_controller, dict) else managing_controller
+                ctrl_resp = client.get(f"dcim/devices/{ctrl_id}")
+            if ctrl_resp.ok:
+                ctrl_data = ctrl_resp.json()
+                ctrl_primary_ip4 = ctrl_data.get("primary_ip4")
+                if ctrl_primary_ip4:
+                    ctrl_ip_resp = client.get_absolute(ctrl_primary_ip4["url"])
+                    if ctrl_ip_resp.ok:
+                        managing_controller_ip = ctrl_ip_resp.json().get("address", "").split("/")[0]
+        except Exception:
+            managing_controller_ip = None
+
     return {
         "device_name": device_name,
         "tenant_name": tenant_name,
@@ -87,6 +118,8 @@ def get_device_context(device_name):
         "role": role_name,
         "device_id": device["id"],
         "location_name": location_name,
+        "controller_managed": controller_managed,
+        "managing_controller_ip": managing_controller_ip,
     }
 def run_diagnostic_command(device_name, command):
     """
@@ -181,21 +214,34 @@ def run_diagnostic_commands(device_name, commands):
     netmiko_device_type = yaml_block.get("netmiko_device_type")
     if not netmiko_device_type:
         raise Exception(f"NO_NETMIKO_TYPE: {section}/{yaml_key} has no netmiko_device_type and no api_type -- unsupported vendor block")
-    # Redirect connection target for Fortinet AP fallback -- a real
-    # FortiAP has no independently reachable SSH server (confirmed
-    # against real hardware: a genuine TCP timeout). It is managed
-    # entirely through its controlling FortiGate. Mirrors the exact
-    # same fix already built into sync_network_data.py's sync_device().
+    # Redirect connection target for any controller-managed device whose
+    # management traffic isn't reachable directly -- generalized from a
+    # FortiAP-only special case (Phase 5): FortiAP has no independently
+    # reachable SSH server (confirmed against real hardware: a genuine
+    # TCP timeout) and is managed entirely through its controlling
+    # FortiGate. `yaml_key == "fortinet_ap_ssh"` is kept alongside the new
+    # `controller_managed` check -- not replaced by it -- so this stays
+    # the exact same trigger for every FortiAP device onboarded before
+    # this generalization (none of which have controller_managed set).
+    # New devices onboarded with an explicit managing_controller
+    # (onboarding_mcp's controller-managed APs) resolve to that device's
+    # IP directly instead of falling back to the site-based FortiGate
+    # lookup. Mirrors the exact same fix already built into
+    # sync_network_data.py's sync_device().
     device_ip = ctx.get("ip_address")
-    if yaml_key == "fortinet_ap_ssh":
-        loc_name = ctx.get("location_name") or ""
-        fw_ip = _find_site_firewall_ip(loc_name, ctx["tenant_slug"]) if loc_name else ""
-        if fw_ip:
-            device_ip = fw_ip
+    if ctx.get("controller_managed") or yaml_key == "fortinet_ap_ssh":
+        if ctx.get("managing_controller_ip"):
+            device_ip = ctx["managing_controller_ip"]
         else:
-            raise Exception(
-                f"No Fortinet firewall found at site '{loc_name}' to route FortiAP connection through"
-            )
+            loc_name = ctx.get("location_name") or ""
+            fw_ip = _find_site_firewall_ip(loc_name, ctx["tenant_slug"]) if loc_name else ""
+            if fw_ip:
+                device_ip = fw_ip
+            else:
+                raise Exception(
+                    f"No controlling device found for '{device_name}' -- neither an explicit "
+                    f"managing_controller nor a site FortiGate to fall back on at site '{loc_name}'"
+                )
     if not device_ip:
         raise Exception(f"NO_IP: '{device_name}' has no primary IP set in Nautobot")
     username = creds.get("user")

@@ -24,6 +24,19 @@ nautobot_day2/                      installable Python package (the Nautobot App
 │   ├── core.py                     shared broker logic
 │   ├── api_server.py                REST wrapper
 │   └── mcp_server.py                MCP wrapper
+├── onboarding_mcp/                  conversational onboarding — MCP server, :8091
+│   ├── server.py                     MCP transport (streamable-http)
+│   ├── tools_schema.py               the 11 MCP tools
+│   ├── session/state_machine.py      Redis-backed session state machine
+│   ├── controllers/                  local_ssh_master, meraki, mist, aruba_central, other
+│   ├── intake/                       static_device / ap_discovery validation
+│   └── deploy/                       credential_writer, nautobot_deployer
+├── shadow_ip/                       real-to-shadow IP mapping (RFC 6598 NAT catalog)
+│   ├── shadow_math.py                offset-preserving compute_shadow_ip/compute_real_ip
+│   ├── site_onboarding.py            onboard_site() — real+shadow Prefix pair
+│   ├── custom_fields.py              one-time bootstrap (Phase 14a)
+│   ├── jobs/                         OnboardSite, CatalogShadowIP, ReconcileDeviceIPs
+│   └── integrations/fortigate_client.py  FortiGate NVA REST client (pending live verification)
 ├── onboarding/
 │   ├── upload_app.py                web wizard (Flask)
 │   ├── templates/
@@ -49,7 +62,7 @@ deploy/
 └── single-server/
     ├── INSTALL.md                    clean-Ubuntu-to-running walkthrough
     ├── README.md
-    ├── docker-compose.yml             all 9 services, single-server test stack
+    ├── docker-compose.yml             all 10 services, single-server test stack
     ├── Dockerfile                     shared image for nautobot/worker/wizard/broker
     ├── nautobot_config.py             mounted into the Nautobot image
     └── .env.example                   secrets template
@@ -69,6 +82,7 @@ PROJECT_CONTEXT.md
 | Onboarding wizard | `python3 nautobot_day2/onboarding/upload_app.py --port 8081` | **8081** | standalone Flask process | — |
 | Agent Broker — REST | `python3 nautobot_day2/broker/api_server.py --port 8082` | **8082** | standalone Flask process | — |
 | Agent Broker — MCP | `python3 nautobot_day2/broker/mcp_server.py` | **8090** (path `/mcp`) | standalone MCP server (streamable-http) | — |
+| onboarding-mcp | `python3 nautobot_day2/onboarding_mcp/server.py` | **8091** (path `/mcp`) | standalone MCP server (streamable-http) | — |
 | OpenBao | `bao server` (or the `openbao/openbao` image) | **8200** | standalone server | — |
 | Postgres | — | 5432 (default) | container/managed DB | — |
 | Redis | — | 6379 (default) | container/managed cache | — |
@@ -88,6 +102,8 @@ PROJECT_CONTEXT.md
 | `NAUTOBOT_DAY2_LOG_LEVEL` | environment (optional) | `client.get_logger()` |
 | Tenant credential `.env` files | `<tenants_dir>/<tenant-slug>.env` | fallback/legacy — see gaps doc |
 | Tenant profile JSON | `<tenants_dir>/<tenant-slug>.json` (or `onboarding/profiles/` if unset) | wizard, ChatOps, `create_tenant.py`, `credential_checker.py` |
+| `NAUTOBOT_REDIS_HOST`, `NAUTOBOT_REDIS_PASSWORD`, `ONBOARDING_MCP_REDIS_DB` | environment | `onboarding_mcp/session/state_machine.py`'s plain redis client — reuses the same `redis` service as Celery/Django cache, but a separate DB index (default `2`) for isolation |
+| `FORTIGATE_NVA_BASE_URL`, `FORTIGATE_NVA_API_TOKEN` | environment (optional) | `shadow_ip/integrations/fortigate_client.py` — `ReconcileDeviceIPs` skips a tenant if unset |
 
 ## OpenBao path convention
 
@@ -108,5 +124,5 @@ access-method combo (e.g. `aruba-ssh`, `juniper-mist-api`,
 |---|---|---|
 | (base) `pip install .` | requests, python-dotenv, PyYAML, tabulate, netmiko, Flask | The Nautobot App itself + onboarding scripts |
 | `.[chatops]` | nautobot-chatops | ChatOps commands |
-| `.[broker]` | nornir, nornir-netmiko, nornir-nautobot, mcp | Agent Broker (both REST and MCP) |
+| `.[broker]` | nornir, nornir-netmiko, nornir-nautobot, mcp, redis | Agent Broker (both REST and MCP) + onboarding-mcp (same shared image/extra — see Dockerfile) |
 | `.[dev]` | pytest, pytest-django | (declared; no tests exist yet in-repo — see gaps doc) |

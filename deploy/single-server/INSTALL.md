@@ -448,6 +448,27 @@ command, including destructive ones, against any device it can resolve.
 Phase 13 below deliberately does **not** open these two ports to anything
 but this box's own internal network.
 
+## Phase 12a — bring up onboarding-mcp (conversational onboarding)
+
+```bash
+docker compose up -d onboarding-mcp
+docker compose logs onboarding-mcp | grep -i "Onboarding MCP" \
+  && echo " — onboarding-mcp process started"
+```
+
+Same situation as the Agent Broker MCP interface above: no plain-HTTP
+`/health` for `:8091`, `healthcheck: disable: true` is deliberate, and a
+real MCP client handshake (`initialize` → session-id → `tools/list`,
+same curl sequence as `:8090` in the validation command reference,
+against port `8091`) is the only full test.
+
+**⚠️ This service is higher-privilege than the Agent Broker** — it
+writes credentials to OpenBao and creates real Nautobot objects, not
+just reads. It has the same no-authentication gap as the broker (see
+Phase 12's warning above), applied to a service that can do more damage
+if reachable by the wrong caller. Phase 13 below does not open port
+`8091` to anything but this box's own internal network either.
+
 ## Phase 13 — firewall: open only what should actually be reachable
 
 ```bash
@@ -457,12 +478,12 @@ but this box's own internal network.
 # to your own IP range only (not 0.0.0.0/0) is the minimum reasonable step:
 sudo ufw allow from <your-office-or-VPN-CIDR> to any port 8080 proto tcp
 
-# The onboarding wizard (8081) and BOTH Agent Broker interfaces (8082,
-# 8090) are internal/MSP-only tools per docs/02-COMPONENTS.md and
-# docs/06-GAPS-AND-RECOMMENDATIONS.md §1 — do NOT open these broadly.
-# Reach them via SSH tunnel or a VPN that already restricts to trusted
-# operators, e.g.:
-#   ssh -L 8081:localhost:8081 -L 8082:localhost:8082 deploy@<server-ip>
+# The onboarding wizard (8081), BOTH Agent Broker interfaces (8082,
+# 8090), and onboarding-mcp (8091) are internal/MSP-only tools per
+# docs/02-COMPONENTS.md and docs/06-GAPS-AND-RECOMMENDATIONS.md §1 — do
+# NOT open these broadly. Reach them via SSH tunnel or a VPN that already
+# restricts to trusted operators, e.g.:
+#   ssh -L 8081:localhost:8081 -L 8082:localhost:8082 -L 8091:localhost:8091 deploy@<server-ip>
 
 sudo ufw status
 ```
@@ -477,6 +498,51 @@ Once the dry run looks right, re-run it without `--dry-run` to actually
 create manufacturers, platforms, device roles, location types, and service
 tags. Device creation later will fail with "Platform/Role not found" if
 this step is skipped.
+
+## Phase 14a — bootstrap shadow IP custom fields, sdwan-edge role, and the CatalogShadowIP Job Hook
+
+```bash
+docker compose exec nautobot python3 /source/nautobot-day2/nautobot_day2/shadow_ip/custom_fields.py --dry-run
+```
+
+Once the dry run looks right, re-run without `--dry-run` to actually
+create `nat_shadow_prefix`, `mapped_shadow_ip`, `real_ip`,
+`fortigate_vdom`, `controller_managed`, and `managing_controller`.
+**PENDING LIVE VERIFICATION** (see `shadow_ip/custom_fields.py`'s own
+docstring) — the "object"-type fields' payload shape hasn't been
+confirmed against a running server yet; check the actual API response
+here and adjust the script if it's rejected.
+
+Also required, both one-time manual steps (code cannot do these):
+
+1. **Add the `sdwan-edge` role**, the same way `bootstrap_nautobot.py`
+   creates the other device roles — `onboarding_mcp`'s new SD-WAN edge
+   role (architecture doc §6) has no Nautobot Role object until one is
+   created with that exact name.
+2. **Register the `CatalogShadowIP` Job Hook**: Nautobot UI → Extensibility
+   → Job Hooks → add one triggering on **IPAddress**, action **create**,
+   pointed at the `CatalogShadowIP` job, scoped to exclude the `Global`
+   namespace (so it doesn't re-trigger on the shadow record it just
+   created). Nothing in `docker compose up` registers this — it's a
+   one-time click-through, same category as enabling Jobs below.
+
+Then enable every `nautobot_day2` Job, including the new `OnboardSite`,
+`CatalogShadowIP`, and `ReconcileDeviceIPs` (see Phase 6 row 5 of the
+master project reference for why this step exists — `Job.enabled`
+defaults to `False` on fresh registration):
+
+```bash
+docker compose exec -T nautobot nautobot-server shell <<'EOF'
+from nautobot.extras.models import Job
+Job.objects.filter(module_name__startswith='nautobot_day2').update(enabled=True)
+EOF
+```
+
+Finally, schedule `ReconcileDeviceIPs` via Nautobot's Job Scheduling UI
+(Jobs → Scheduled Jobs), interval 10-15 minutes per customer, once
+`FORTIGATE_NVA_BASE_URL`/`FORTIGATE_NVA_API_TOKEN` are set in `.env` —
+until then it will run and simply skip every tenant without a
+`fortigate_vdom` configured, which is harmless but does nothing useful.
 
 ## Phase 15 — full pipeline health check
 
@@ -545,7 +611,7 @@ check `docker compose logs nautobot-worker` a few seconds later for the
 confirms the dispatch → Celery → summary round-trip works, independent of
 whether the device itself was reachable.
 
-## Phase 17 — final install checklist (all 9 services)
+## Phase 17 — final install checklist (all 10 services)
 
 | # | Check | Command / where to look | Expected |
 |---|---|---|---|
@@ -553,17 +619,19 @@ whether the device itself was reachable.
 | 2 | Redis healthy | `docker compose ps redis` | `healthy` |
 | 3 | OpenBao unsealed | `docker compose exec openbao sh -c "BAO_ADDR=http://127.0.0.1:8200 bao status"` | `Sealed: false` |
 | 4 | Nautobot web healthy | `docker compose ps nautobot` | `healthy` |
-| 5 | `nautobot_day2` Jobs registered | Check 10.1 | 3 Job names |
+| 5 | `nautobot_day2` Jobs registered | Check 10.1 | 6 Job names (incl. `OnboardSite`, `CatalogShadowIP`, `ReconcileDeviceIPs`) |
 | 6 | Worker on both queues | Check 10.2 | `default`, `nautobot_day2_sync` |
 | 7 | Sync-engine OpenBao identity works | Check 10.3 | `{}`, no auth error |
 | 8 | Onboarding wizard healthy | `curl 127.0.0.1:8081/health` | `{"status": "ok", ...}` |
 | 9 | Wizard's OpenBao identity works | Check 11.1 | `{}`, no auth error |
 | 10 | Agent Broker REST healthy | `curl 127.0.0.1:8082/health` | `{"status": "ok", ...}` |
 | 11 | Agent Broker MCP process up | `docker compose logs agent-broker-mcp` | startup banner, no traceback |
-| 12 | No `change-me` values left in `.env` | `grep change-me .env` | no output |
-| 13 | Ports 8081/8082/8090 not reachable from outside this box's trusted network | `nc -zv <server-ip> 8082` from an *untrusted* network | connection refused/timeout |
-| 14 | OpenBao unseal key + root token stored off-box | — | confirmed with whoever owns secrets storage |
-| 15 | First simulated sync completed end to end | Phase 16 | summary log line with `✅ N ❌ 0` |
+| 12 | onboarding-mcp process up | `docker compose logs onboarding-mcp` | startup banner, no traceback |
+| 13 | CatalogShadowIP Job Hook registered | Nautobot UI → Extensibility → Job Hooks | one hook, IPAddress/create, excluding `Global` |
+| 14 | No `change-me` values left in `.env` | `grep change-me .env` | no output |
+| 15 | Ports 8081/8082/8090/8091 not reachable from outside this box's trusted network | `nc -zv <server-ip> 8091` from an *untrusted* network | connection refused/timeout |
+| 16 | OpenBao unseal key + root token stored off-box | — | confirmed with whoever owns secrets storage |
+| 17 | First simulated sync completed end to end | Phase 16 | summary log line with `✅ N ❌ 0` |
 
 If every row above passes, the install is complete and matches the
 documented architecture in `docs/03-ARCHITECTURE.md`. Rows 12–14 are

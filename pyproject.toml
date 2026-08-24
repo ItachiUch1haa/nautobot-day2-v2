@@ -31,6 +31,7 @@ broker = [
     "nornir-netmiko>=1.0",
     "nornir-nautobot>=4.2",
     "mcp>=1.0,<2.0",
+    "redis>=5.0",
 ]
 
 [project.entry-points."nautobot.workers"]

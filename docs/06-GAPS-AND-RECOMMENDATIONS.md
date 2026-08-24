@@ -186,3 +186,18 @@ Celery worker's logs directly to find out. Worth fixing by having
 `sync_summary_callback` explicitly close out the JobResult's status once
 the chord completes, rather than leaving it to whatever Nautobot's
 own job-runner set at dispatch time.
+
+## 13. `onboarding-mcp` has no authentication yet — higher exposure than the broker
+
+Same category of gap as item 1 above, carried forward explicitly rather
+than left as just a comment in a spec doc (per that spec's own
+architecture doc §11): `onboarding_mcp/server.py` (port 8091) has no
+authentication on any of its 11 MCP tools. This is a **strictly bigger**
+exposure than the Agent Broker's missing auth — the broker only reads
+device state and runs diagnostic commands with an existing credential;
+onboarding-mcp **writes new credentials to OpenBao and creates real
+Nautobot objects** (tenants, sites, devices, IP addresses) on behalf of
+whoever can reach it. Do not expose port 8091 beyond this box's own
+trusted network (INSTALL.md Phase 12a/13 do not open it), and treat
+adding real authentication here as a precondition for any exposure
+beyond that, not a follow-up.

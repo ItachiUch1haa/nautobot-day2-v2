@@ -1832,27 +1832,58 @@ def sync_device(device, dry_run):
                         f'Fill {missing} in {_tenants_dir}/{tenant_slug}.env')
             return result
 
-    # Redirect connection target for Fortinet AP fallback: a real
-    # FortiAP has no independently reachable SSH server (confirmed this
-    # session via a genuine TCP timeout against real hardware) -- it is
-    # managed entirely through its controlling FortiGate. Find that
-    # firewall's own IP and use it instead of this AP's own
-    # (non-functional-for-SSH) IP.
-    if yaml_key == 'fortinet_ap_ssh':
-        loc_ref = device.get('location') or {}
-        loc_name = ''
-        if loc_ref:
-            loc_resp = client.get_absolute(loc_ref['url'])
-            if loc_resp.ok:
-                loc_name = loc_resp.json().get('name', '')
-        fw_ip = _find_site_firewall_ip(loc_name, tenant_slug) if loc_name else ''
-        if fw_ip:
-            device_ip = fw_ip
+    # Redirect connection target for any controller-managed device whose
+    # management traffic isn't reachable directly -- generalized from a
+    # FortiAP-only special case (Phase 5): a real FortiAP has no
+    # independently reachable SSH server (confirmed this session via a
+    # genuine TCP timeout against real hardware) -- it is managed
+    # entirely through its controlling FortiGate. `yaml_key ==
+    # 'fortinet_ap_ssh'` is kept alongside the new controller_managed
+    # check, not replaced by it -- every FortiAP onboarded before this
+    # generalization has no controller_managed custom field set, so it
+    # keeps hitting the exact same site-based FortiGate lookup as before.
+    # A device with an explicit managing_controller (onboarding_mcp's
+    # controller-managed APs) resolves straight to that device's IP.
+    custom_fields = device.get('custom_fields') or {}
+    controller_managed = bool(custom_fields.get('controller_managed'))
+    if controller_managed or yaml_key == 'fortinet_ap_ssh':
+        managing_controller_ip = ''
+        managing_controller = custom_fields.get('managing_controller') if controller_managed else None
+        if managing_controller:
+            try:
+                if isinstance(managing_controller, dict) and managing_controller.get('url'):
+                    ctrl_resp = client.get_absolute(managing_controller['url'])
+                else:
+                    ctrl_id = managing_controller.get('id') if isinstance(managing_controller, dict) else managing_controller
+                    ctrl_resp = client.get(f'dcim/devices/{ctrl_id}')
+                if ctrl_resp.ok:
+                    ctrl_primary_ip4 = ctrl_resp.json().get('primary_ip4')
+                    if ctrl_primary_ip4:
+                        ctrl_ip_resp = client.get_absolute(ctrl_primary_ip4['url'])
+                        if ctrl_ip_resp.ok:
+                            managing_controller_ip = ctrl_ip_resp.json().get('address', '').split('/')[0]
+            except Exception:
+                managing_controller_ip = ''
+
+        if managing_controller_ip:
+            device_ip = managing_controller_ip
         else:
-            result.fail(ERR_UNKNOWN,
-                        f"No Fortinet firewall found at site '{loc_name}' to route FortiAP connection through",
-                        'Confirm a Fortinet branch-fw device exists at this site with a primary IP set')
-            return result
+            loc_ref = device.get('location') or {}
+            loc_name = ''
+            if loc_ref:
+                loc_resp = client.get_absolute(loc_ref['url'])
+                if loc_resp.ok:
+                    loc_name = loc_resp.json().get('name', '')
+            fw_ip = _find_site_firewall_ip(loc_name, tenant_slug) if loc_name else ''
+            if fw_ip:
+                device_ip = fw_ip
+            else:
+                result.fail(ERR_UNKNOWN,
+                            f"No controlling device found for '{name}' -- neither an explicit "
+                            f"managing_controller nor a site FortiGate to fall back on at site '{loc_name}'",
+                            'Confirm a Fortinet branch-fw device exists at this site with a primary IP set, '
+                            'or that managing_controller is set for this controller-managed device')
+                return result
 
     # Fetch data
     if data_source == 'ssh':
