@@ -342,16 +342,31 @@ rather than guessed twice):
   explicit `"status": Status.objects.get(name="Active")` in `defaults`.
   Fixed in `site_onboarding.py`, `catalog_shadow_ip.py`,
   `reconcile_device_ips.py`.
-- **`custom_field_data` isn't a queryable ORM field name — `_custom_field_data`
-  is.** `.custom_field_data` is a Python property for reading/writing on an
-  already-fetched instance (`obj.custom_field_data["x"] = y` works fine);
-  it is NOT a real Django `Field`, so `.filter(custom_field_data__x=...)`
-  raises `FieldError: Cannot resolve keyword 'custom_field_data' into
-  field. Choices are: _custom_field_data, ...`. Any query-time lookup
-  needs the underscored name: `.filter(_custom_field_data__x=...)`. Fixed
-  in `validate_vip_coverage.py`, the only place in this package that
-  filtered by a custom field rather than just reading one off an instance
-  already in hand.
+- **`custom_field_data` isn't a real Django model field at all — it only
+  works as a property on an already-fetched instance.** `.custom_field_data`
+  is a Python property (`obj.custom_field_data["x"] = y; obj.save()` works
+  fine); it is NOT a real Django `Field`, so it can't be used anywhere
+  Django needs an actual field name. Two distinct manifestations, both hit
+  live:
+  1. **Query-time**: `.filter(custom_field_data__x=...)` raises
+     `FieldError: Cannot resolve keyword 'custom_field_data' into field.
+     Choices are: _custom_field_data, ...` — the queryable name is the
+     underscored `_custom_field_data`. Fixed in `validate_vip_coverage.py`.
+  2. **Create-time**: passing `"custom_field_data": {...}` inside
+     `get_or_create()`/`create()`'s `defaults=` (or as a constructor
+     kwarg) raises `FieldError: Invalid field name(s) for model
+     IPAddress: 'custom_field_data'` — Django validates every key in
+     `defaults`/kwargs against real model fields before constructing the
+     object, and this property doesn't count as one. This one was hit by
+     the very fix in `catalog_shadow_ip.py`/`reconcile_device_ips.py`'s
+     `defaults={"status": ..., "custom_field_data": {...}}` from a few
+     commits earlier in this same session — a bug introduced while fixing
+     a different bug, only caught because a manual backfill script using
+     the identical pattern was tried live and failed the same way. Fixed
+     by splitting: `get_or_create(..., defaults={"status": ...})` (real
+     fields only) followed by `obj.custom_field_data["x"] = y; obj.save()`
+     — the same two-step pattern `site_onboarding.py` already used
+     correctly for `Prefix`, which is why that file never had this bug.
 
 - **`JobHookReceiver.receive_job_hook()`'s first argument is `change`, not
   `change_context`.** A real device deploy triggered `CatalogShadowIP` for

@@ -66,15 +66,23 @@ class CatalogShadowIP(JobHookReceiver):
         shadow_ip_str = compute_shadow_ip(str(real_ip.host), real_prefix, shadow_prefix)
         # LIVE-VERIFIED: ipam_ipaddress.status_id is NOT NULL on this
         # Nautobot version, same as ipam_prefix -- see site_onboarding.py's
-        # note on the Prefix side of this same bug class.
+        # note on the Prefix side of this same bug class. custom_field_data
+        # is ALSO live-verified NOT settable via get_or_create()/create()'s
+        # defaults/kwargs -- it's a Python property, not a real model field,
+        # so Django's own field-name validation on object construction
+        # rejects it (FieldError: "Invalid field name(s) for model
+        # IPAddress: 'custom_field_data'"), the same underlying issue as
+        # the _custom_field_data query-time fix in validate_vip_coverage.py,
+        # just hit on the create path instead of filter(). Set it via the
+        # property after creation and save(), matching how
+        # site_onboarding.py already does this correctly for Prefix.
         new_shadow, _ = IPAddress.objects.get_or_create(
             address=f"{shadow_ip_str}/{shadow_prefix.prefix_length}",
             namespace=Namespace.objects.get(name="Global"),
-            defaults={
-                "status": Status.objects.get(name="Active"),
-                "custom_field_data": {"real_ip": str(real_ip.host)},
-            },
+            defaults={"status": Status.objects.get(name="Active")},
         )
+        new_shadow.custom_field_data["real_ip"] = str(real_ip.host)
+        new_shadow.save()
 
         real_ip.custom_field_data["mapped_shadow_ip"] = str(new_shadow.id)
         real_ip.save()

@@ -78,15 +78,20 @@ class ReconcileDeviceIPs(Job):
 
                 # LIVE-VERIFIED: ipam_ipaddress.status_id is NOT NULL on this
                 # Nautobot version -- see site_onboarding.py's note on the
-                # Prefix side of this same bug class.
+                # Prefix side of this same bug class. custom_field_data is
+                # ALSO live-verified not settable via get_or_create()/
+                # create()'s defaults/kwargs -- it's a Python property, not a
+                # real model field (FieldError: "Invalid field name(s) for
+                # model IPAddress: 'custom_field_data'"). Set it via the
+                # property after creation and save() instead, matching
+                # catalog_shadow_ip.py's identical fix.
                 new_shadow, _ = IPAddress.objects.get_or_create(
                     address=f"{new_shadow_str}/{shadow_prefix.prefix_length}",
                     namespace=Namespace.objects.get(name="Global"),
-                    defaults={
-                        "status": Status.objects.get(name="Active"),
-                        "custom_field_data": {"real_ip": live_real_ip},
-                    },
+                    defaults={"status": Status.objects.get(name="Active")},
                 )
+                new_shadow.custom_field_data["real_ip"] = live_real_ip
+                new_shadow.save()
                 device.primary_ip4 = new_shadow
                 device.save()
 
