@@ -22,6 +22,29 @@ never through the REST API's object-type serialization. The only thing
 lost is Nautobot's built-in clickable-reference UI/validation for an
 "object" field -- functionally these behave identically for this
 codebase's own use.
+
+LIVE-VERIFIED, found while debugging why a real device's shadow IP never
+got linked: this script's POST payload only ever sent "name", assuming
+that determines the field's `key` (the identifier used inside
+custom_field_data JSON). On this Nautobot version it does not -- `key` is
+the real field, and when omitted, Nautobot auto-generates it by
+slugifying `label` instead, silently ignoring "name". This worked by
+sheer coincidence for every field whose label happens to slugify to the
+same string as its intended key (e.g. "FortiGate VDOM" -> fortigate_vdom)
+-- but "real_ip"'s label, "Real IP (denormalized)", slugified to
+`real_ip_denormalized`, a completely different key than any code in this
+package actually reads or writes. Confirmed directly: Nautobot logged
+`Unknown field key 'real_ip' in custom field data` the first time
+real code tried to set it, and two stray `real_ip_denormalized[_2]`
+fields exist from earlier runs repeatedly re-attempting creation (the
+"already exists" check below compares against `field["name"]`, which
+never matched the wrong key those earlier runs actually got assigned).
+Fixed by sending `key` explicitly instead of relying on label slugging --
+this is the actual identifier that matters; `label` is now free to be
+any human-readable text without affecting correctness. The two stray
+`real_ip_denormalized[_2]` fields from before this fix are harmless,
+unused cruft -- safe to delete from Nautobot's UI (Extensibility ->
+Custom Fields) if you want to tidy up, not required for correctness.
 """
 import argparse
 import os
@@ -124,7 +147,14 @@ def create_custom_fields(dry_run, results):
             results.append([field["name"], "Custom Field", "would create"])
             continue
 
-        payload = {k: v for k, v in field.items() if k != "name"} | {"name": field["name"]}
+        # key is the real identifier (see module docstring for why this
+        # can't be left to Nautobot's label-slugging); name is kept too in
+        # case it's meaningful on some other Nautobot version, but key is
+        # what actually determines correctness here.
+        payload = {k: v for k, v in field.items() if k != "name"} | {
+            "name": field["name"],
+            "key": field["name"],
+        }
         r = api_post("extras/custom-fields", payload)
         if r.status_code == 201:
             print(f"  OK    {field['name']} (id: {r.json()['id']})")
