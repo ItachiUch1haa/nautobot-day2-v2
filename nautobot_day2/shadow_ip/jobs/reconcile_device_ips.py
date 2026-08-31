@@ -76,10 +76,16 @@ class ReconcileDeviceIPs(Job):
                 shadow_prefix = Prefix.objects.get(id=shadow_prefix_id)
                 new_shadow_str = compute_shadow_ip(live_real_ip, real_prefix, shadow_prefix)
 
+                # LIVE-VERIFIED: ipam_ipaddress.status_id is NOT NULL on this
+                # Nautobot version -- see site_onboarding.py's note on the
+                # Prefix side of this same bug class.
                 new_shadow, _ = IPAddress.objects.get_or_create(
                     address=f"{new_shadow_str}/{shadow_prefix.prefix_length}",
                     namespace=Namespace.objects.get(name="Global"),
-                    defaults={"custom_field_data": {"real_ip": live_real_ip}},
+                    defaults={
+                        "status": Status.objects.get(name="Active"),
+                        "custom_field_data": {"real_ip": live_real_ip},
+                    },
                 )
                 device.primary_ip4 = new_shadow
                 device.save()

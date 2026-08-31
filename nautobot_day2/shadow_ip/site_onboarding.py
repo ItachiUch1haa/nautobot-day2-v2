@@ -28,6 +28,7 @@ that.
 import ipaddress
 
 from nautobot.dcim.models import Location
+from nautobot.extras.models import Status
 from nautobot.ipam.models import Namespace, Prefix
 
 
@@ -96,11 +97,19 @@ def onboard_site(
             f"step) before onboarding its shadow IP prefix pair."
         )
 
+    # LIVE-VERIFIED on the lab server: ipam_prefix.status_id is a NOT NULL
+    # column on this Nautobot version -- get_or_create() without a status in
+    # defaults raised IntegrityError on the actual INSERT (confirmed via the
+    # worker's traceback), not caught by anything upstream. No status is
+    # implied/defaulted by Nautobot itself; every Prefix needs one explicitly.
+    active_status = Status.objects.get(name="Active")
     shadow_prefix, _ = Prefix.objects.get_or_create(
         prefix=shadow_cidr, namespace=global_ns,
+        defaults={"status": active_status},
     )
     real_prefix, _ = Prefix.objects.get_or_create(
         prefix=real_cidr, namespace=customer_ns, location=location,
+        defaults={"status": active_status},
     )
     real_prefix.custom_field_data["nat_shadow_prefix"] = str(shadow_prefix.id)
     real_prefix.save()

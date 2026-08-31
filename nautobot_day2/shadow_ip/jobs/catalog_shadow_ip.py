@@ -54,10 +54,16 @@ class CatalogShadowIP(JobHookReceiver):
         shadow_prefix = Prefix.objects.get(id=shadow_prefix_id)
 
         shadow_ip_str = compute_shadow_ip(str(real_ip.host), real_prefix, shadow_prefix)
+        # LIVE-VERIFIED: ipam_ipaddress.status_id is NOT NULL on this
+        # Nautobot version, same as ipam_prefix -- see site_onboarding.py's
+        # note on the Prefix side of this same bug class.
         new_shadow, _ = IPAddress.objects.get_or_create(
             address=f"{shadow_ip_str}/{shadow_prefix.prefix_length}",
             namespace=Namespace.objects.get(name="Global"),
-            defaults={"custom_field_data": {"real_ip": str(real_ip.host)}},
+            defaults={
+                "status": Status.objects.get(name="Active"),
+                "custom_field_data": {"real_ip": str(real_ip.host)},
+            },
         )
 
         real_ip.custom_field_data["mapped_shadow_ip"] = str(new_shadow.id)
