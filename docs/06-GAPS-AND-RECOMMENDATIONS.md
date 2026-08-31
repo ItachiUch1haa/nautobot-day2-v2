@@ -353,9 +353,29 @@ rather than guessed twice):
   filtered by a custom field rather than just reading one off an instance
   already in hand.
 
+- **`JobHookReceiver.receive_job_hook()`'s first argument is `change`, not
+  `change_context`.** A real device deploy triggered `CatalogShadowIP` for
+  the first time end-to-end and hit `TypeError:
+  CatalogShadowIP.receive_job_hook() got an unexpected keyword argument
+  'change'` — confirmed via the worker's traceback pointing at Nautobot's
+  own `nautobot/extras/jobs.py::JobHookReceiver.run()`, which calls this
+  method with `change=...` on this version. The architecture doc's spec
+  code used `change_context`, carried over verbatim and never live-tested
+  until now. Fixed by renaming the parameter (it was never referenced in
+  the method body either way, so this was a pure signature fix, not a
+  behavior change). This crashed the hook on every single real/shadow IP
+  pairing attempted before this fix — nothing upstream (not `OnboardSite`,
+  not device creation) could have caught this, since Job Hooks fail
+  silently from the REST caller's perspective; the only visibility was the
+  worker's own log.
+
 Net effect: `onboard_site()` now runs successfully end-to-end on the lab
-server. Worth grepping for `custom_field_data__` (missing the underscore)
-before adding any new query-time custom-field filter to this codebase.
+server, and `CatalogShadowIP` now actually computes and links shadow IPs
+for real device IP creation. Worth grepping for `custom_field_data__`
+(missing the underscore) before adding any new query-time custom-field
+filter to this codebase, and double-checking any `JobHookReceiver`
+subclass's `receive_job_hook()` signature the same way if one is ever
+added.
 
 Worth checking if/when this environment upgrades Nautobot past whatever
 version first ships `object`/`multi-object` custom field types — switching

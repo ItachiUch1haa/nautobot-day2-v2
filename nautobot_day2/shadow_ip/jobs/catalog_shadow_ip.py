@@ -32,8 +32,18 @@ class CatalogShadowIP(JobHookReceiver):
 
         name = "Catalog shadow IP on real IP create or update"
 
-    def receive_job_hook(self, change_context, action, changed_object, snapshots):
-        """React to a real IPAddress create/update by computing and cataloging its shadow IP."""
+    def receive_job_hook(self, change, action, changed_object, snapshots):
+        """React to a real IPAddress create/update by computing and cataloging its shadow IP.
+
+        LIVE-VERIFIED on the lab server: Nautobot's JobHookReceiver.run()
+        calls this with change=... as a keyword argument on this version,
+        not change_context=... as the architecture doc's spec code assumed
+        -- confirmed via a real TypeError: "CatalogShadowIP.receive_job_hook()
+        got an unexpected keyword argument 'change'" the first time a real
+        IPAddress creation actually triggered this hook. The parameter was
+        never used in this method's body either way, so this is a pure
+        rename, not a behavior change.
+        """
         if action not in ("create", "update"):
             return
         real_ip = changed_object
