@@ -20,6 +20,21 @@ device-model gap already flagged in deploy/nautobot_deployer.py):
     DEVICE_INTAKE, per the hard sequencing rule. PENDING LIVE VERIFICATION:
     the short poll-for-completion loop below assumes a Nautobot job-result
     response/polling shape not yet confirmed against a running server.
+
+FLAGGED, NOT SILENTLY PAPERED OVER (VIP Management architecture doc's own
+instruction to surface conflicts rather than guess): set_site's new-site
+path can only succeed once the site's Location already exists --
+site_onboarding.onboard_site() looks it up by name and raises a clear
+error otherwise (see that module's docstring for why). This tool schema
+(architecture doc §4) never collects Region/Country/State/City, so it has
+no way to create that Location itself the way the web wizard's
+build_location_hierarchy() does. Until this is resolved with a real
+policy decision (extend this schema to also collect the geo hierarchy? or
+require the site's Location to be created via the web wizard first, with
+onboarding-mcp only ever onboarding shadow IP for an existing site?),
+set_site(mode="new") for a genuinely brand-new site will fail with
+set_site's ToolError wrapping onboard_site()'s ShadowIPValidationError --
+this is surfaced clearly to the caller, not swallowed.
 """
 import os
 import sys
@@ -156,14 +171,27 @@ def _poll_job_result(job_run_response, timeout_s=15, interval_s=0.5):
     raise ToolError(f"Timed out waiting for job result {job_result_id} to complete")
 
 
-def set_site(session_id, mode, site_name, real_cidr=None, shadow_cidr=None):
+def set_site(
+    session_id,
+    mode,
+    site_name,
+    real_cidr=None,
+    shadow_cidr=None,
+    fortigate_vdom=None,
+    fortigate_vip_name=None,
+    fortigate_tunnel_name=None,
+):
     """
     mode="new": trigger OnboardSite (real+shadow prefix pair, via the
     shadow_ip module's REST-triggerable Job wrapper) and poll for
     completion before transitioning — the hard sequencing rule (§8)
     means DEVICE_INTAKE must not be reachable until this has actually
     finished and nat_shadow_prefix is confirmed populated, not just
-    dispatched.
+    dispatched. fortigate_vdom/fortigate_vip_name/fortigate_tunnel_name
+    are optional (VIP Management architecture doc §5/§6.5) — set them to
+    also register this site for ValidateVIPCoverage reconciliation
+    against the live FortiGate VIP object; omit them to onboard the
+    shadow IP prefix pair without VIP tracking, same as before.
     mode="existing": confirm the site + its current real prefix (needed
     by add_static_device's mgmt_ip containment check).
     """
@@ -184,14 +212,20 @@ def set_site(session_id, mode, site_name, real_cidr=None, shadow_cidr=None):
         if not job.get("enabled"):
             raise ToolError("OnboardSite job is registered but not enabled — see nautobot_deployer.trigger_sync's docstring for the fix")
 
-        run_resp = client.post(f"extras/jobs/{job['id']}/run", {
-            "data": {
-                "customer_ns_name": tenant.get("namespace_name") or tenant["name"],
-                "site_name": site_name,
-                "real_cidr": real_cidr,
-                "shadow_cidr": shadow_cidr,
-            }
-        })
+        job_data = {
+            "customer_ns_name": tenant.get("namespace_name") or tenant["name"],
+            "site_name": site_name,
+            "real_cidr": real_cidr,
+            "shadow_cidr": shadow_cidr,
+        }
+        if fortigate_vdom:
+            job_data["fortigate_vdom"] = fortigate_vdom
+        if fortigate_vip_name:
+            job_data["fortigate_vip_name"] = fortigate_vip_name
+        if fortigate_tunnel_name:
+            job_data["fortigate_tunnel_name"] = fortigate_tunnel_name
+
+        run_resp = client.post(f"extras/jobs/{job['id']}/run", {"data": job_data})
         if not run_resp.ok:
             raise ToolError(f"FAILED triggering OnboardSite: {run_resp.status_code}: {run_resp.text[:160]}")
 

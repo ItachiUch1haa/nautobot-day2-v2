@@ -6,6 +6,24 @@ device sync runs. Runs inside a Django/Nautobot process (ORM access) --
 called from OnboardSite (jobs/onboard_site_job.py) so it's reachable over
 REST the same way SyncNetworkData already is, not imported directly by
 the standalone onboarding_mcp process.
+
+FLAGGED CONFLICT, resolved here rather than left silently broken: the VIP
+Management architecture doc's §3.2 assumes a 2-level Location model ("one
+Location per customer, one child Location per site" -- i.e. the site's
+parent is named after the customer). This codebase's REAL Location model
+(bootstrap_nautobot.py's LOCATION_TYPES, built by
+onboarding/nautobot_onboard_v2.py::build_location_hierarchy()) is a
+5-level Region -> Country -> State -> City -> Site chain, with no
+tenant-named Location anywhere in it -- tenancy is expressed via each
+Location's separate `tenant` field, not via parentage. The original
+`Location.objects.get(name=site_name, parent__name=customer_ns_name)`
+lookup could never match a Location this codebase actually creates, so
+this now looks up by name alone, matching the name-only Location lookup
+convention already used elsewhere (onboarding_mcp's set_site existing-site
+path, upload_app.py's `_find_live_firewall_sg()`). Callers are responsible
+for the site's Location already existing -- see onboard_site_job.py and
+upload_app.py's own docstrings for how each onboarding surface satisfies
+that.
 """
 import ipaddress
 
@@ -56,7 +74,13 @@ def onboard_site(
         )
 
     customer_ns = Namespace.objects.get(name=customer_ns_name)
-    location = Location.objects.get(name=site_name, parent__name=customer_ns_name)
+    location = Location.objects.filter(name=site_name).first()
+    if location is None:
+        raise ShadowIPValidationError(
+            f"No Location named '{site_name}' exists yet -- create the site's Location "
+            f"first (e.g. via the onboarding wizard's Region/Country/State/City/Site "
+            f"step) before onboarding its shadow IP prefix pair."
+        )
 
     shadow_prefix, _ = Prefix.objects.get_or_create(
         prefix=shadow_cidr, namespace=global_ns,

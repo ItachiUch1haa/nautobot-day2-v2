@@ -43,7 +43,9 @@ nautobot_day2/                      installable Python package (the Nautobot App
 │   └── integrations/fortigate_client.py  FortiGate NVA REST client — get_dhcp_leases,
 │                                      get_ippools, get_vip (all pending live verification)
 ├── onboarding/
-│   ├── upload_app.py                web wizard (Flask)
+│   ├── upload_app.py                web wizard (Flask) — Step 1's optional real_cidr/
+│   │                                  shadow_cidr/fortigate_* fields trigger shadow_ip's
+│   │                                  OnboardSite job (over REST) before device deploy
 │   ├── templates/
 │   │   ├── index.html               the 6-step wizard UI
 │   │   └── vendor_test.html

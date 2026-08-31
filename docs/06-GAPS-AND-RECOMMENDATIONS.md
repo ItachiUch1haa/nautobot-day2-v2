@@ -236,3 +236,40 @@ not the `Customer-<Letter>` example naming in that architecture doc's §1/§3.1
 allocation table — code here filters by `.exclude(namespace__name="Global")`
 rather than the doc's literal `namespace__name__startswith="Customer"`,
 which would silently match nothing against real tenant namespaces.
+
+## 15. Shadow IP/VIP onboarding is now wired into both onboarding surfaces, with one real bug fixed and one still open
+
+`shadow_ip/site_onboarding.py::onboard_site()` is now called from both
+`onboarding_mcp/tools_schema.py::set_site()` (conversational) and
+`onboarding/upload_app.py`'s `/api/deploy` (web wizard) — both now accept
+the optional `fortigate_vdom`/`fortigate_vip_name`/`fortigate_tunnel_name`
+fields added in the prior VIP Management pass.
+
+**Fixed while wiring this in**: `onboard_site()`'s Location lookup
+(`Location.objects.get(name=site_name, parent__name=customer_ns_name)`)
+could never match anything this codebase actually creates — this
+codebase's real Location model is a 5-level Region → Country → State →
+City → Site chain (`bootstrap_nautobot.py`'s `LOCATION_TYPES`,
+`nautobot_onboard_v2.build_location_hierarchy()`), with tenancy expressed
+via each Location's own `tenant` field, not via a tenant-named parent as
+the architecture doc's §3.2 assumed. Now looks up by name only, matching
+the name-only Location lookup convention already used elsewhere in this
+codebase (`upload_app.py::_find_live_firewall_sg()`,
+onboarding_mcp's existing-site `set_site` path). This was a real,
+pre-existing bug — `set_site(mode="new")` in onboarding_mcp could never
+have succeeded against this codebase's actual Location model before this
+fix, regardless of the VIP fields.
+
+**Still open, not resolved unilaterally**: `onboarding_mcp`'s 11-tool
+schema (architecture doc §4) never collects Region/Country/State/City, so
+it has no way to create a new site's Location itself the way the web
+wizard's `build_location_hierarchy()` does (now called explicitly by
+`/api/deploy` before triggering `OnboardSite`, so the web wizard's path
+works end to end). `set_site(mode="new")` in onboarding_mcp will still
+fail — cleanly, with a clear error surfaced through `ToolError`, not
+silently — for a site whose Location doesn't already exist. Two ways to
+close this, needing a product decision rather than a guess:
+(a) extend onboarding_mcp's schema to also collect the geo hierarchy, or
+(b) treat onboarding_mcp's "new site" as "new to shadow-IP tracking" only,
+requiring the site's Location to already exist (e.g. created via the web
+wizard first) before a conversational session can onboard its shadow IP.

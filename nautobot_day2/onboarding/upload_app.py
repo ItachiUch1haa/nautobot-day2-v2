@@ -17,6 +17,7 @@ import json
 import io
 import argparse
 import re
+import time
 from datetime import datetime
 from functools import lru_cache
 from flask import (
@@ -1099,6 +1100,73 @@ def api_generate_ready_csv():
     })
 
 
+def _trigger_onboard_site_job(
+    customer_ns_name,
+    site_name,
+    real_cidr,
+    shadow_cidr,
+    fortigate_vdom=None,
+    fortigate_vip_name=None,
+    fortigate_tunnel_name=None,
+    timeout_s=15,
+    interval_s=0.5,
+):
+    """
+    Trigger the shadow_ip OnboardSite job over REST and poll for completion
+    -- this wizard is a standalone Flask process with no Django ORM access,
+    same reason onboarding_mcp/tools_schema.py can't import
+    site_onboarding.onboard_site() directly and does the exact same
+    trigger-then-poll dance (kept as a separate copy here rather than a
+    shared import, since these are two independently deployable services).
+    Raises RuntimeError on any failure -- the caller decides whether that
+    blocks device deployment. PENDING LIVE VERIFICATION, same as
+    tools_schema.py's _poll_job_result: the job-result response/polling
+    shape isn't confirmed against a running server yet.
+    """
+    jr = client.get('extras/jobs', params={'name': 'Shadow IP: Onboard Site (real+shadow prefix pair)', 'limit': 1})
+    job_matches = jr.json().get('results', []) if jr.ok else []
+    if not job_matches:
+        raise RuntimeError("OnboardSite job not found — is it registered?")
+    job = job_matches[0]
+    if not job.get('enabled'):
+        raise RuntimeError("OnboardSite job is registered but not enabled")
+
+    job_data = {
+        'customer_ns_name': customer_ns_name,
+        'site_name': site_name,
+        'real_cidr': real_cidr,
+        'shadow_cidr': shadow_cidr,
+    }
+    if fortigate_vdom:
+        job_data['fortigate_vdom'] = fortigate_vdom
+    if fortigate_vip_name:
+        job_data['fortigate_vip_name'] = fortigate_vip_name
+    if fortigate_tunnel_name:
+        job_data['fortigate_tunnel_name'] = fortigate_tunnel_name
+
+    run_resp = client.post(f"extras/jobs/{job['id']}/run", {'data': job_data})
+    if not run_resp.ok:
+        raise RuntimeError(f"FAILED triggering OnboardSite: {run_resp.status_code}: {run_resp.text[:160]}")
+
+    job_run_response = run_resp.json()
+    job_result_id = job_run_response.get('id') or job_run_response.get('job_result', {}).get('id')
+    if not job_result_id:
+        raise RuntimeError(f"Could not find a job-result id in the run response: {job_run_response}")
+
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        r = client.get(f'extras/job-results/{job_result_id}')
+        if r.ok:
+            job_result = r.json()
+            status = (job_result.get('status') or {}).get('value') or job_result.get('status')
+            if status in ('completed', 'success', 'failed', 'errored'):
+                if status not in ('completed', 'success'):
+                    raise RuntimeError(f"OnboardSite job did not succeed (status={status})")
+                return job_result.get('result') or {}
+        time.sleep(interval_s)
+    raise RuntimeError(f"Timed out waiting for job result {job_result_id} to complete")
+
+
 @app.route('/api/deploy', methods=['POST'])
 def api_deploy():
     """
@@ -1106,6 +1174,17 @@ def api_deploy():
     the tenant-wide sync Job over Nautobot's own REST API. Reuses
     nautobot_onboard_v2.py's process_csv() directly, in-process -- no file
     round-trip needed, since it already accepts row dicts.
+
+    If site_config carries real_cidr/shadow_cidr (both optional, together
+    -- VIP Management architecture doc §5), this first builds the site's
+    Location hierarchy (reusing build_location_hierarchy(), the same call
+    process_csv() would otherwise make lazily on its first row for this
+    site -- idempotent, so doing it here too just finds 'exists') and then
+    triggers OnboardSite before any device is created, mirroring
+    onboarding_mcp's hard sequencing rule: a customer with an untracked
+    shadow IP/VIP is a worse failure mode than a deploy that stops early
+    with a clear error, so a failure here aborts before any device is
+    touched rather than deploying devices with no shadow IP link.
 
     Body: { "rows": [...], "site_config": {...},
             "trigger_sync": true (default), "sync_category": "all" (default) }
@@ -1126,8 +1205,34 @@ def api_deploy():
     if not ready_rows:
         return jsonify({'error': 'No valid rows to deploy'}), 400
 
-    # Onboard: create devices, IPs, controllers in Nautobot
+    real_cidr = (site_config.get('real_cidr') or '').strip()
+    shadow_cidr = (site_config.get('shadow_cidr') or '').strip()
+    if bool(real_cidr) != bool(shadow_cidr):
+        return jsonify({'error': 'real_cidr and shadow_cidr must both be set together, or both left blank'}), 400
+
     nautobot_onboard_v2.init_cache()
+
+    shadow_result = None
+    if real_cidr and shadow_cidr:
+        active_id = nautobot_onboard_v2._C['statuses'].get('Active')
+        site_id, loc_log = nautobot_onboard_v2.build_location_hierarchy(site_config, active_id, dry_run=False)
+        if not site_id:
+            return jsonify({'error': f"Could not create/find site Location before shadow IP onboarding: {loc_log}"}), 500
+        try:
+            onboard_result = _trigger_onboard_site_job(
+                tenant_slug,
+                site_config.get('site_name', ''),
+                real_cidr,
+                shadow_cidr,
+                fortigate_vdom=(site_config.get('fortigate_vdom') or '').strip() or None,
+                fortigate_vip_name=(site_config.get('fortigate_vip_name') or '').strip() or None,
+                fortigate_tunnel_name=(site_config.get('fortigate_tunnel_name') or '').strip() or None,
+            )
+        except RuntimeError as e:
+            return jsonify({'error': f"Shadow IP site onboarding failed — devices not deployed: {e}"}), 500
+        shadow_result = {'triggered': True, 'result': onboard_result}
+
+    # Onboard: create devices, IPs, controllers in Nautobot
     onboard_results = nautobot_onboard_v2.process_csv(ready_rows, dry_run=False)
 
     ok     = sum(1 for r in onboard_results if r[1] == 'OK')
@@ -1140,6 +1245,7 @@ def api_deploy():
             'total': len(ready_rows),
             'results': onboard_results,
         },
+        'shadow_ip': shadow_result,
         'sync': None,
     }
 

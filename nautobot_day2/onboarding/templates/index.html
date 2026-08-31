@@ -179,6 +179,40 @@ select:focus, input:focus { outline: none; border-color: #1B3A6B; }
         </select>
       </div>
     </div>
+
+    <div class="field-group" style="margin-top:16px">
+      <label style="font-weight:600">Shadow IP / VIP Tracking (optional)</label>
+    </div>
+    <div class="alert alert-info" style="margin:4px 0 8px">
+      Leave blank to skip shadow-IP/VIP tracking for this site. If set, Real CIDR and
+      Shadow CIDR are required together; the FortiGate fields are only needed if you
+      also want this site reconciled against a live FortiGate VIP object.
+    </div>
+    <div class="grid-3">
+      <div class="field-group">
+        <label>Real CIDR</label>
+        <input type="text" id="realCidrInput" placeholder="e.g. 192.168.2.0/24">
+      </div>
+      <div class="field-group">
+        <label>Shadow CIDR</label>
+        <input type="text" id="shadowCidrInput" placeholder="e.g. 100.64.10.0/24">
+      </div>
+      <div class="field-group">
+        <label>FortiGate VDOM</label>
+        <input type="text" id="fortigateVdomInput" placeholder="e.g. custA">
+      </div>
+    </div>
+    <div class="grid-2">
+      <div class="field-group">
+        <label>FortiGate VIP Name</label>
+        <input type="text" id="fortigateVipNameInput" placeholder="e.g. VIP-CUST-A">
+      </div>
+      <div class="field-group">
+        <label>FortiGate Tunnel Name</label>
+        <input type="text" id="fortigateTunnelNameInput" placeholder="e.g. Tunnel-CUSTA">
+      </div>
+    </div>
+
     <div class="actions">
       <button class="btn btn-primary" onclick="goStep2()">Next &mdash; Add Devices</button>
     </div>
@@ -419,6 +453,8 @@ function setStep(n) {
 
 function goStep1() { setStep(1); }
 
+var REQUIRED_SITE_FIELDS = ["tenant_slug", "region", "country", "state", "city", "site_name", "site_type"];
+
 function goStep2() {
   var tenant = document.getElementById("tenantSelect").value;
   if (!tenant) { alert("Select or create a tenant first"); return; }
@@ -429,10 +465,20 @@ function goStep2() {
     state:     document.getElementById("stateInput").value.trim(),
     city:      document.getElementById("cityInput").value.trim(),
     site_name: document.getElementById("siteName").value.trim(),
-    site_type: document.getElementById("siteTypeSelect").value
+    site_type: document.getElementById("siteTypeSelect").value,
+    // Shadow IP / VIP tracking — optional, see Step 1's own note.
+    real_cidr:              document.getElementById("realCidrInput").value.trim(),
+    shadow_cidr:            document.getElementById("shadowCidrInput").value.trim(),
+    fortigate_vdom:         document.getElementById("fortigateVdomInput").value.trim(),
+    fortigate_vip_name:     document.getElementById("fortigateVipNameInput").value.trim(),
+    fortigate_tunnel_name:  document.getElementById("fortigateTunnelNameInput").value.trim()
   };
-  for (var k in state.siteConfig) {
-    if (!state.siteConfig[k]) { alert("Fill all site config fields"); return; }
+  for (var i = 0; i < REQUIRED_SITE_FIELDS.length; i++) {
+    if (!state.siteConfig[REQUIRED_SITE_FIELDS[i]]) { alert("Fill all required site config fields"); return; }
+  }
+  if (!!state.siteConfig.real_cidr !== !!state.siteConfig.shadow_cidr) {
+    alert("Real CIDR and Shadow CIDR must both be set together, or both left blank");
+    return;
   }
   setStep(2);
   if (document.getElementById("deviceRows").children.length === 0) {
@@ -856,11 +902,19 @@ function deploySite() {
   .then(function(data) {
     if (data.error) { div.innerHTML = "<div class=\"alert alert-error\">" + data.error + "</div>"; return; }
 
-    var onboard = data.onboard || {};
-    var sync    = data.sync;
+    var onboard  = data.onboard || {};
+    var sync     = data.sync;
+    var shadowIp = data.shadow_ip;
     var html = "<div class=\"alert " + (onboard.failed ? "alert-warn" : "alert-ok") + "\">" +
       "<strong>Onboarding:</strong> " + onboard.ok + " created, " + onboard.failed + " failed, " +
       onboard.total + " total.</div>";
+
+    if (shadowIp && shadowIp.triggered) {
+      var sr = shadowIp.result || {};
+      html += "<div class=\"alert alert-ok\">" +
+        "<strong>Shadow IP:</strong> real prefix " + (sr.real_prefix || "?") +
+        " &harr; shadow prefix " + (sr.shadow_prefix || "?") + " linked.</div>";
+    }
 
     if (sync) {
       if (sync.triggered) {
@@ -923,6 +977,11 @@ function startNewSite() {
   document.getElementById("stateInput").value = "";
   document.getElementById("cityInput").value = "";
   document.getElementById("siteName").value = "";
+  document.getElementById("realCidrInput").value = "";
+  document.getElementById("shadowCidrInput").value = "";
+  document.getElementById("fortigateVdomInput").value = "";
+  document.getElementById("fortigateVipNameInput").value = "";
+  document.getElementById("fortigateTunnelNameInput").value = "";
   clearAllRows();
   setStep(1);
 }
