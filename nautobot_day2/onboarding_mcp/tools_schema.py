@@ -21,20 +21,18 @@ device-model gap already flagged in deploy/nautobot_deployer.py):
     the short poll-for-completion loop below assumes a Nautobot job-result
     response/polling shape not yet confirmed against a running server.
 
-FLAGGED, NOT SILENTLY PAPERED OVER (VIP Management architecture doc's own
-instruction to surface conflicts rather than guess): set_site's new-site
-path can only succeed once the site's Location already exists --
-site_onboarding.onboard_site() looks it up by name and raises a clear
-error otherwise (see that module's docstring for why). This tool schema
-(architecture doc §4) never collects Region/Country/State/City, so it has
-no way to create that Location itself the way the web wizard's
-build_location_hierarchy() does. Until this is resolved with a real
-policy decision (extend this schema to also collect the geo hierarchy? or
-require the site's Location to be created via the web wizard first, with
-onboarding-mcp only ever onboarding shadow IP for an existing site?),
-set_site(mode="new") for a genuinely brand-new site will fail with
-set_site's ToolError wrapping onboard_site()'s ShadowIPValidationError --
-this is surfaced clearly to the caller, not swallowed.
+RESOLVED (was flagged as an open policy decision last pass): set_site's
+new-site path now collects region/country/state/city/site_type -- the
+same fields the web wizard's Step 1 collects -- and builds the site's
+Location hierarchy itself via nautobot_onboard_v2.build_location_hierarchy(),
+the exact same REST-based helper the wizard's /api/deploy calls (that
+module is pure NautobotClient REST, no Django ORM, already imported
+in-process by deploy/nautobot_deployer.py, so no Job-trigger-and-poll
+detour is needed here the way OnboardSite needs one for the ORM-only
+site_onboarding.onboard_site()). This makes onboarding-mcp's new-tenant+
+new-site and existing-tenant+new-site paths behave the same way the web
+wizard's do, shadow IP/VIP tracking included -- see set_site's own
+docstring.
 """
 import os
 import sys
@@ -60,6 +58,7 @@ from other_generic import OtherGenericClient  # noqa: E402
 from base import ControllerAuthError  # noqa: E402
 import credential_writer  # noqa: E402
 import nautobot_deployer  # noqa: E402
+import nautobot_onboard_v2  # noqa: E402
 import create_tenant as create_tenant_module  # noqa: E402
 
 client = NautobotClient()
@@ -92,6 +91,22 @@ def _session(session_id):
 
 # ── start_onboarding / set_tenant / set_site ──────────────────────────────────
 
+def _get_site_types():
+    """
+    Site-level location types (dcim.device content type, excluding the
+    legacy 'Site' type) -- same query upload_app.py's /api/site-types uses
+    to populate the wizard's dropdown. Returned so a conversational client
+    can present the same choices a human sees in the wizard, instead of
+    guessing a site_type string that build_location_hierarchy() will
+    reject.
+    """
+    lts = client.get_all("dcim/location-types", params={"limit": 200})
+    return sorted(
+        lt["name"] for lt in lts
+        if "dcim.device" in lt.get("content_types", []) and lt["name"] != "Site"
+    )
+
+
 def start_onboarding():
     """List existing tenants (customer namespaces) and start a new session."""
     session = state_machine.OnboardingSession.create(_get_store())
@@ -101,6 +116,7 @@ def start_onboarding():
         "session_id": session.session_id,
         "state": state_machine.TENANT_RESOLUTION,
         "existing_tenants": [{"id": t["id"], "name": t["name"]} for t in tenants],
+        "site_types": _get_site_types(),
     }
 
 
@@ -175,6 +191,11 @@ def set_site(
     session_id,
     mode,
     site_name,
+    region=None,
+    country=None,
+    state=None,
+    city=None,
+    site_type=None,
     real_cidr=None,
     shadow_cidr=None,
     fortigate_vdom=None,
@@ -182,12 +203,16 @@ def set_site(
     fortigate_tunnel_name=None,
 ):
     """
-    mode="new": trigger OnboardSite (real+shadow prefix pair, via the
-    shadow_ip module's REST-triggerable Job wrapper) and poll for
-    completion before transitioning — the hard sequencing rule (§8)
-    means DEVICE_INTAKE must not be reachable until this has actually
-    finished and nat_shadow_prefix is confirmed populated, not just
-    dispatched. fortigate_vdom/fortigate_vip_name/fortigate_tunnel_name
+    mode="new": build the site's Location hierarchy (region/country/state/
+    city/site_type — same required fields as the web wizard's Step 1,
+    same nautobot_onboard_v2.build_location_hierarchy() call the wizard's
+    /api/deploy makes, so a new site behaves identically whichever
+    onboarding surface created it), then trigger OnboardSite (real+shadow
+    prefix pair, via the shadow_ip module's REST-triggerable Job wrapper)
+    and poll for completion before transitioning — the hard sequencing
+    rule (§8) means DEVICE_INTAKE must not be reachable until this has
+    actually finished and nat_shadow_prefix is confirmed populated, not
+    just dispatched. fortigate_vdom/fortigate_vip_name/fortigate_tunnel_name
     are optional (VIP Management architecture doc §5/§6.5) — set them to
     also register this site for ValidateVIPCoverage reconciliation
     against the live FortiGate VIP object; omit them to onboard the
@@ -202,8 +227,34 @@ def set_site(
         raise ToolError("No tenant set on this session — call set_tenant first")
 
     if mode == "new":
+        missing = [
+            f for f, v in
+            (("region", region), ("country", country), ("state", state),
+             ("city", city), ("site_type", site_type))
+            if not v
+        ]
+        if missing:
+            raise ToolError(f"Missing required field(s) for a new site: {', '.join(missing)}")
         if not real_cidr or not shadow_cidr:
             raise ToolError("real_cidr and shadow_cidr are required for a new site")
+
+        # Lazy, once-per-process init, same pattern nautobot_deployer.deploy_device()
+        # already uses for this exact module-level cache — harmless if deploy_site()
+        # later finds it already populated.
+        if not nautobot_onboard_v2._C:
+            nautobot_onboard_v2.init_cache()
+        active_status_id = nautobot_onboard_v2._C["statuses"].get("Active")
+        if not active_status_id:
+            raise ToolError("Nautobot 'Active' status not found — has bootstrap_nautobot.py been run?")
+
+        loc_row = {
+            "region": region, "country": country, "state": state,
+            "city": city, "site_type": site_type, "site_name": site_name,
+        }
+        site_id, loc_log = nautobot_onboard_v2.build_location_hierarchy(loc_row, active_status_id, dry_run=False)
+        if not site_id:
+            raise ToolError(f"Could not create/find site Location: {loc_log}")
+
         jr = client.get("extras/jobs", params={"name": "Shadow IP: Onboard Site (real+shadow prefix pair)", "limit": 1})
         job_matches = jr.json().get("results", []) if jr.ok else []
         if not job_matches:
@@ -236,6 +287,7 @@ def set_site(
 
         onboard_result = job_result.get("result") or {}
         site_state = {
+            "id": None if str(site_id).startswith("DRY:") else site_id,
             "name": site_name,
             "real_prefix_id": onboard_result.get("real_prefix_id"),
             "real_prefix_cidr": onboard_result.get("real_prefix") or real_cidr,
@@ -249,15 +301,12 @@ def set_site(
         if not prefixes:
             raise ToolError(f"Site '{site_name}' has no real prefix on record")
         site_state = {
+            "id": loc["id"],
             "name": site_name,
             "real_prefix_id": prefixes[0]["id"],
             "real_prefix_cidr": prefixes[0]["prefix"],
             "shadow_prefix_id": prefixes[0].get("custom_fields", {}).get("nat_shadow_prefix"),
         }
-
-    lookup = client.get("dcim/locations", params={"name": site_name, "limit": 1})
-    site_results = lookup.json().get("results", []) if lookup.ok else []
-    site_state["id"] = site_results[0]["id"] if site_results else None
 
     data = session.transition("set_site", lambda d: {**d, "site": site_state})
     return {"site": site_state, "state": data["state"]}

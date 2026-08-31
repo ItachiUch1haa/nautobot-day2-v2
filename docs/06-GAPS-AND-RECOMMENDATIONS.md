@@ -237,7 +237,7 @@ allocation table — code here filters by `.exclude(namespace__name="Global")`
 rather than the doc's literal `namespace__name__startswith="Customer"`,
 which would silently match nothing against real tenant namespaces.
 
-## 15. Shadow IP/VIP onboarding is now wired into both onboarding surfaces, with one real bug fixed and one still open
+## 15. Shadow IP/VIP onboarding is wired into both onboarding surfaces; both now build their own site Location
 
 `shadow_ip/site_onboarding.py::onboard_site()` is now called from both
 `onboarding_mcp/tools_schema.py::set_site()` (conversational) and
@@ -260,16 +260,24 @@ pre-existing bug — `set_site(mode="new")` in onboarding_mcp could never
 have succeeded against this codebase's actual Location model before this
 fix, regardless of the VIP fields.
 
-**Still open, not resolved unilaterally**: `onboarding_mcp`'s 11-tool
-schema (architecture doc §4) never collects Region/Country/State/City, so
-it has no way to create a new site's Location itself the way the web
-wizard's `build_location_hierarchy()` does (now called explicitly by
-`/api/deploy` before triggering `OnboardSite`, so the web wizard's path
-works end to end). `set_site(mode="new")` in onboarding_mcp will still
-fail — cleanly, with a clear error surfaced through `ToolError`, not
-silently — for a site whose Location doesn't already exist. Two ways to
-close this, needing a product decision rather than a guess:
-(a) extend onboarding_mcp's schema to also collect the geo hierarchy, or
-(b) treat onboarding_mcp's "new site" as "new to shadow-IP tracking" only,
-requiring the site's Location to already exist (e.g. created via the web
-wizard first) before a conversational session can onboard its shadow IP.
+**Now also closed**: per an explicit follow-up request ("onboarding-mcp
+should work the same way the web wizard works"), `set_site()` gained
+`region`/`country`/`state`/`city`/`site_type` params (required for
+`mode="new"`, same fields as the wizard's Step 1) and now calls
+`nautobot_onboard_v2.build_location_hierarchy()` itself before triggering
+`OnboardSite` — the same REST-based helper the wizard's `/api/deploy`
+calls, safe to import and call in-process here too since that module is
+pure `NautobotClient` REST with no Django ORM dependency (already proven
+by `deploy/nautobot_deployer.py`, which has imported it in-process since
+the original onboarding-mcp build). `start_onboarding()` also now returns
+`site_types` (from Nautobot's live location-types, same query as the
+wizard's `/api/site-types`) so a conversational client can offer the same
+valid choices a human sees in the wizard's dropdown instead of guessing a
+string `build_location_hierarchy()` would reject.
+
+Both onboarding surfaces now support the same three paths — new tenant +
+new site, existing tenant + new site, existing tenant + existing site —
+with the same shadow IP/VIP tracking available on the new-site path
+either way. Neither surface batches multiple sites into one flow; each
+onboards one site at a time by design (see the prior turn's confirmation
+of this for both).
