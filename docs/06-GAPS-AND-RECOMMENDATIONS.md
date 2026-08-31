@@ -300,6 +300,43 @@ ever read/wrote these fields as plain strings through the Django ORM
 never through the REST API's object-type serialization — the only thing lost
 is Nautobot's built-in clickable-reference UI for an "object" field.
 
+## 17. More Nautobot-version-specific ORM quirks found via live testing — a reference for future `shadow_ip` code
+
+The first real end-to-end run of `OnboardSite` on the lab server hit three
+more assumptions from the architecture doc's spec code that didn't hold on
+this Nautobot version (each confirmed by introspecting the live system
+rather than guessed twice):
+
+- **`PrefixQuerySet` has no `net_overlap()`.** `AttributeError`, confirmed
+  by listing `dir()` on a live `Prefix.objects.all()` queryset. The real
+  methods are `net_contains`, `net_contained`, `net_contained_or_equal`,
+  `net_contains_or_equals`, `net_equals` — no generic "overlap" check.
+  Since two valid CIDR blocks can only be disjoint, equal, or one strictly
+  containing the other, "any overlap" is `net_contains_or_equals(x) OR
+  net_contained_or_equal(x)`. Fixed in `site_onboarding.py`.
+- **`status` has no default on `Prefix`/`IPAddress`.** `ipam_prefix.status_id`
+  (and, by the same schema pattern, `ipam_ipaddress.status_id`) is `NOT
+  NULL` with no application-level default — confirmed via a raw
+  `IntegrityError` from Postgres when `get_or_create()` omitted it. Every
+  `get_or_create()` for a `Prefix` or `IPAddress` in this codebase needs an
+  explicit `"status": Status.objects.get(name="Active")` in `defaults`.
+  Fixed in `site_onboarding.py`, `catalog_shadow_ip.py`,
+  `reconcile_device_ips.py`.
+- **`custom_field_data` isn't a queryable ORM field name — `_custom_field_data`
+  is.** `.custom_field_data` is a Python property for reading/writing on an
+  already-fetched instance (`obj.custom_field_data["x"] = y` works fine);
+  it is NOT a real Django `Field`, so `.filter(custom_field_data__x=...)`
+  raises `FieldError: Cannot resolve keyword 'custom_field_data' into
+  field. Choices are: _custom_field_data, ...`. Any query-time lookup
+  needs the underscored name: `.filter(_custom_field_data__x=...)`. Fixed
+  in `validate_vip_coverage.py`, the only place in this package that
+  filtered by a custom field rather than just reading one off an instance
+  already in hand.
+
+Net effect: `onboard_site()` now runs successfully end-to-end on the lab
+server. Worth grepping for `custom_field_data__` (missing the underscore)
+before adding any new query-time custom-field filter to this codebase.
+
 Worth checking if/when this environment upgrades Nautobot past whatever
 version first ships `object`/`multi-object` custom field types — switching
 back would be a nice-to-have UI improvement then, not a requirement.

@@ -31,8 +31,19 @@ class ValidateVIPCoverage(Job):
         """For every shadow Prefix with VIP fields set, diff it against the live firewall VIP."""
         for shadow_prefix in Prefix.objects.filter(namespace__name="Global"):
             vip_name = shadow_prefix.custom_field_data.get("fortigate_vip_name")
+            # LIVE-VERIFIED: the queryable ORM field backing custom_field_data
+            # on this Nautobot version is _custom_field_data (underscore-
+            # prefixed) -- .custom_field_data is only a Python property for
+            # reading/writing on an already-fetched instance, not a real
+            # Field Django's filter() can resolve by that name (confirmed via
+            # FieldError: "Cannot resolve keyword 'custom_field_data' into
+            # field. Choices are: _custom_field_data, ..."). Query-time
+            # lookups need the underscored name; instance attribute access
+            # elsewhere in this codebase (shadow_prefix.custom_field_data.get(...)
+            # above, real_prefix.custom_field_data[...] = ... in
+            # site_onboarding.py, etc.) is unaffected and stays as-is.
             real_prefix = Prefix.objects.exclude(namespace__name="Global").filter(
-                custom_field_data__nat_shadow_prefix=str(shadow_prefix.id)
+                _custom_field_data__nat_shadow_prefix=str(shadow_prefix.id)
             ).first()
             if not vip_name or not real_prefix:
                 continue  # not a VIP-tracked shadow prefix, or no real prefix linked back to it yet
