@@ -164,7 +164,7 @@ def set_tenant(session_id, mode, tenant_name, tenant_slug=None):
     return result
 
 
-def _poll_job_result(job_run_response, timeout_s=15, interval_s=0.5):
+def _poll_job_result(job_run_response, timeout_s=45, interval_s=0.5):
     """
     PENDING LIVE VERIFICATION: extracts a job-result id from a triggered
     Job's REST response and polls extras/job-results/{id}/ until it's no

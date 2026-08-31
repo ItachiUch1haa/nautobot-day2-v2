@@ -78,10 +78,19 @@ def onboard_site(
     # prefix is a superset of or equal to shadow_cidr) and
     # net_contained_or_equal (an existing Global prefix is a subset of or
     # equal to shadow_cidr).
+    #
+    # An existing prefix that is EXACTLY shadow_cidr is excluded from this
+    # conflict check -- that's this exact site re-onboarding (e.g. a client
+    # retrying after a slow/timed-out first call whose Job actually
+    # succeeded, confirmed happening live on the lab server), which must
+    # stay idempotent, matching get_or_create()'s own semantics below. Only
+    # a *different*, genuinely overlapping range from another site/customer
+    # is a real conflict.
     existing_shadow = Prefix.objects.filter(namespace=global_ns)
+    same_cidr_ids = existing_shadow.net_equals(shadow_cidr).values_list("pk", flat=True)
     if (
-        existing_shadow.net_contains_or_equals(shadow_cidr).exists()
-        or existing_shadow.net_contained_or_equal(shadow_cidr).exists()
+        existing_shadow.net_contains_or_equals(shadow_cidr).exclude(pk__in=same_cidr_ids).exists()
+        or existing_shadow.net_contained_or_equal(shadow_cidr).exclude(pk__in=same_cidr_ids).exists()
     ):
         raise ShadowIPValidationError(
             f"shadow_cidr {shadow_cidr} overlaps an existing shadow Prefix in the "

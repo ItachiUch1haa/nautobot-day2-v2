@@ -1153,7 +1153,7 @@ def _trigger_onboard_site_job(
     fortigate_vdom=None,
     fortigate_vip_name=None,
     fortigate_tunnel_name=None,
-    timeout_s=15,
+    timeout_s=45,
     interval_s=0.5,
 ):
     """
@@ -1164,9 +1164,17 @@ def _trigger_onboard_site_job(
     trigger-then-poll dance (kept as a separate copy here rather than a
     shared import, since these are two independently deployable services).
     Raises RuntimeError on any failure -- the caller decides whether that
-    blocks device deployment. PENDING LIVE VERIFICATION, same as
-    tools_schema.py's _poll_job_result: the job-result response/polling
-    shape isn't confirmed against a running server yet.
+    blocks device deployment.
+
+    LIVE-VERIFIED on the lab server: the original 15s timeout was too
+    tight -- a real OnboardSite run was observed completing successfully a
+    few seconds after this poller had already given up and reported a
+    false "timed out" failure to the caller, who then retried and hit
+    site_onboarding.py's overlap check rejecting its own already-succeeded
+    Prefix (see that module's note on why the check is now idempotent for
+    an exact-CIDR resubmit). Bumped to 45s headroom; the job-result
+    response/polling shape itself is confirmed correct now, not just
+    assumed.
     """
     jr = client.get('extras/jobs', params={'name': 'Shadow IP: Onboard Site (real+shadow prefix pair)', 'limit': 1})
     job_matches = jr.json().get('results', []) if jr.ok else []
