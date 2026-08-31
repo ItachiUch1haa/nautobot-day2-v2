@@ -5,8 +5,19 @@ processes with no Django ORM access -- exactly like the wizard triggers
 SyncNetworkData over REST (POST extras/jobs/{id}/run) instead of importing
 Job code directly, onboarding_mcp's set_site tool triggers this Job the
 same way rather than calling onboard_site() in-process.
+
+BUG FOUND AND FIXED via live lab-server testing: this file never called
+register_jobs(OnboardSite) -- every sibling job in this package does, at
+the bottom of its module. Nautobot's App job-discovery only refreshes
+jobs that went through register_jobs(); the class imported fine (Python
+had no complaint) but Nautobot's `Job` table never learned it existed, so
+neither onboarding surface could ever actually trigger it, despite both
+being built and wired to call it by name over REST. Pre-existing since
+the very first shadow_ip commit -- not introduced by later changes to
+this file, just never caught until the first real end-to-end test.
 """
 from nautobot.extras.jobs import Job, StringVar
+from nautobot.apps.jobs import register_jobs
 
 from ..site_onboarding import ShadowIPValidationError, onboard_site
 
@@ -103,3 +114,6 @@ class OnboardSite(Job):
             "shadow_prefix_id": str(shadow_prefix.id),
             "shadow_prefix": str(shadow_prefix.prefix),
         }
+
+
+register_jobs(OnboardSite)
