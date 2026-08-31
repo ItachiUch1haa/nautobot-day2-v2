@@ -23,3 +23,18 @@ def compute_real_ip(shadow_ip_str, real_prefix, shadow_prefix):
     shadow_net = ipaddress.ip_network(shadow_prefix.prefix, strict=False)
     offset = int(ipaddress.ip_address(shadow_ip_str)) - int(shadow_net.network_address)
     return str(ipaddress.ip_address(int(real_net.network_address) + offset))
+
+
+def range_from_prefix(cidr):
+    """Return a prefix's usable host range as 'first-last', in the same string
+    shape FortiOS reports extip/mappedip -- used to compare a Nautobot Prefix
+    against a live VIP object in ValidateVIPCoverage."""
+    net = ipaddress.ip_network(cidr, strict=False)
+    hosts = list(net.hosts())
+    return f"{hosts[0]}-{hosts[-1]}"
+
+
+def range_size(range_str):
+    """Return the number of addresses spanned by a 'first-last' range string."""
+    start, end = range_str.split("-")
+    return int(ipaddress.ip_address(end.strip())) - int(ipaddress.ip_address(start.strip())) + 1

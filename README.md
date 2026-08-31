@@ -38,8 +38,10 @@ nautobot_day2/            installable Python package (the Nautobot App)
 │   └── mcp_server.py       MCP wrapper (port 8090) — same logic, different transport
 ├── onboarding_mcp/         conversational onboarding — MCP server (port 8091), state machine,
 │                           controller adapters (local SSH / Meraki / Mist / Aruba Central), deploy
-├── shadow_ip/              real-to-shadow IP mapping (RFC 6598) — catalogs the NAT the FortiGate
-│                           NVA already performs; onboard_site(), CatalogShadowIP, ReconcileDeviceIPs
+├── shadow_ip/              real-to-shadow IP mapping (RFC 6598) + VIP coverage — catalogs the NAT
+│                           the FortiGate NVA already performs and reconciles it against the live
+│                           VIP object; onboard_site(), CatalogShadowIP, ReconcileDeviceIPs,
+│                           DiscoverNewDevices, ValidateVIPCoverage
 ├── onboarding/             onboarding pipeline + vendor sync engine
 │   ├── upload_app.py       web onboarding wizard (Flask, port 8081) — see below
 │   ├── templates/index.html   the 6-step wizard UI

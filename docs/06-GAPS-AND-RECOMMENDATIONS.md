@@ -201,3 +201,38 @@ whoever can reach it. Do not expose port 8091 beyond this box's own
 trusted network (INSTALL.md Phase 12a/13 do not open it), and treat
 adding real authentication here as a precondition for any exposure
 beyond that, not a follow-up.
+
+## 14. VIP coverage reconciliation (`ValidateVIPCoverage`, `DiscoverNewDevices`) has open decisions its own spec calls out — not resolved in code
+
+Added per `NautobotVIPManagementArchitecture.md` §6.3/§6.5, extending the
+existing `shadow_ip/` package rather than a parallel implementation (its
+own instruction #2). Both jobs are **untested against a real FortiGate**
+(same `PENDING LIVE VERIFICATION` status as the rest of `shadow_ip/` —
+`get_vip()`'s `mappedip` response-shape parsing in particular needs
+confirming against the live NVA, per that doc's own §6.6 caveat). Beyond
+live verification, that doc's §8 leaves several decisions explicitly open
+and deliberately unresolved here rather than picked unilaterally:
+- **§8.1** — `ValidateVIPCoverage` mismatches (which likely mean a
+  customer is currently unreachable) only go to the job log today, not a
+  ticket/alert channel. Worth wiring to whatever paging/ticketing this
+  platform already uses before relying on it operationally.
+- **§8.2** — no retention/hard-delete policy exists yet for `Deprecated`
+  shadow IPs produced by `ReconcileDeviceIPs`/`CatalogShadowIP`'s update
+  path; they accumulate indefinitely as-is.
+- **§8.6** — `DiscoverNewDevices` only ever logs a warning for an
+  unrecognized MAC; no auto-promotion to a full Device record, by design,
+  for the reasons in the job's own docstring. Confirm this stays the
+  policy before anyone builds an auto-promotion path on top of it.
+- **§8.5** — FortiOS API token scope (per-VDOM vs. global-admin) and where
+  it should be vaulted (OpenBao, following this repo's existing credential
+  pattern, is the natural fit but isn't wired up) is still unconfirmed;
+  `FORTIGATE_NVA_API_TOKEN` is a single shared env var today, not
+  per-tenant-scoped like the broker's OpenBao AppRoles (see item 3 above —
+  same category of risk).
+
+Also worth flagging: this codebase's actual customer-namespace naming
+convention is the tenant **slug** (`create_tenant.py::create_namespace()`),
+not the `Customer-<Letter>` example naming in that architecture doc's §1/§3.1
+allocation table — code here filters by `.exclude(namespace__name="Global")`
+rather than the doc's literal `namespace__name__startswith="Customer"`,
+which would silently match nothing against real tenant namespaces.

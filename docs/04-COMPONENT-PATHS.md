@@ -31,12 +31,17 @@ nautobot_day2/                      installable Python package (the Nautobot App
 │   ├── controllers/                  local_ssh_master, meraki, mist, aruba_central, other
 │   ├── intake/                       static_device / ap_discovery validation
 │   └── deploy/                       credential_writer, nautobot_deployer
-├── shadow_ip/                       real-to-shadow IP mapping (RFC 6598 NAT catalog)
-│   ├── shadow_math.py                offset-preserving compute_shadow_ip/compute_real_ip
-│   ├── site_onboarding.py            onboard_site() — real+shadow Prefix pair
+├── shadow_ip/                       real-to-shadow IP mapping + VIP coverage (RFC 6598 NAT catalog)
+│   ├── shadow_math.py                offset-preserving compute_shadow_ip/compute_real_ip,
+│   │                                  range_from_prefix/range_size (VIP extip/mappedip diffing)
+│   ├── site_onboarding.py            onboard_site() — real+shadow Prefix pair, optional
+│   │                                  fortigate_vdom/vip_name/tunnel_name (VIP Mgmt doc §5)
 │   ├── custom_fields.py              one-time bootstrap (Phase 14a)
-│   ├── jobs/                         OnboardSite, CatalogShadowIP, ReconcileDeviceIPs
-│   └── integrations/fortigate_client.py  FortiGate NVA REST client (pending live verification)
+│   ├── test_shadow_math.py           pure-python unit tests, run directly (no Nautobot needed)
+│   ├── jobs/                         OnboardSite, CatalogShadowIP (create+update),
+│   │                                  ReconcileDeviceIPs, DiscoverNewDevices, ValidateVIPCoverage
+│   └── integrations/fortigate_client.py  FortiGate NVA REST client — get_dhcp_leases,
+│                                      get_ippools, get_vip (all pending live verification)
 ├── onboarding/
 │   ├── upload_app.py                web wizard (Flask)
 │   ├── templates/

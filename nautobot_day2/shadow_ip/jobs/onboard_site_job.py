@@ -10,6 +10,13 @@ from nautobot.extras.jobs import Job, StringVar
 
 from ..site_onboarding import ShadowIPValidationError, onboard_site
 
+_VIP_FIELDS_HELP = (
+    " Optional -- set these to also register the site for ValidateVIPCoverage "
+    "reconciliation against the live FortiGate VIP object (VIP Management "
+    "architecture doc §5/§6.5); leave blank if this site's VIP isn't being "
+    "tracked yet."
+)
+
 
 class OnboardSite(Job):
     """Create a site's real+shadow Prefix pair and link them, before any device import."""
@@ -41,12 +48,47 @@ class OnboardSite(Job):
         label="Shadow CIDR",
         description="The paired shadow subnet in 100.64.0.0/10, same prefix length as real_cidr",
     )
+    fortigate_vdom = StringVar(
+        label="FortiGate VDOM",
+        description="e.g. custA -- the VDOM this customer's traffic lives in." + _VIP_FIELDS_HELP,
+        required=False,
+        default="",
+    )
+    fortigate_vip_name = StringVar(
+        label="FortiGate VIP name",
+        description="e.g. VIP-CUST-A -- the literal static-nat VIP object name on the firewall."
+        + _VIP_FIELDS_HELP,
+        required=False,
+        default="",
+    )
+    fortigate_tunnel_name = StringVar(
+        label="FortiGate tunnel name",
+        description="e.g. Tunnel-CUSTA -- for cross-referencing tunnel health separately."
+        + _VIP_FIELDS_HELP,
+        required=False,
+        default="",
+    )
 
-    def run(self, customer_ns_name, site_name, real_cidr, shadow_cidr):
+    def run(
+        self,
+        customer_ns_name,
+        site_name,
+        real_cidr,
+        shadow_cidr,
+        fortigate_vdom="",
+        fortigate_vip_name="",
+        fortigate_tunnel_name="",
+    ):
         """Validate and create the real/shadow Prefix pair, logging the result."""
         try:
             real_prefix, shadow_prefix = onboard_site(
-                customer_ns_name, site_name, real_cidr, shadow_cidr
+                customer_ns_name,
+                site_name,
+                real_cidr,
+                shadow_cidr,
+                fortigate_vdom=fortigate_vdom or None,
+                fortigate_vip_name=fortigate_vip_name or None,
+                fortigate_tunnel_name=fortigate_tunnel_name or None,
             )
         except ShadowIPValidationError as e:
             self.logger.error(str(e))

@@ -17,8 +17,28 @@ class ShadowIPValidationError(Exception):
     """Raised when a real/shadow CIDR pair fails validation before onboarding a site."""
 
 
-def onboard_site(customer_ns_name, site_name, real_cidr, shadow_cidr):
-    """Call this once per site as part of the existing onboarding flow, before device import."""
+def onboard_site(
+    customer_ns_name,
+    site_name,
+    real_cidr,
+    shadow_cidr,
+    fortigate_vdom=None,
+    fortigate_vip_name=None,
+    fortigate_tunnel_name=None,
+):
+    """Call this once per site as part of the existing onboarding flow, before device import.
+
+    fortigate_vdom/fortigate_vip_name/fortigate_tunnel_name are optional so
+    existing callers that only care about the real/shadow prefix pair keep
+    working unchanged; pass them (VIP Management architecture doc §5) to
+    also record what ValidateVIPCoverage needs to reconcile this site
+    against the live FortiGate VIP object. fortigate_vdom and
+    fortigate_tunnel_name are stored on the customer Namespace (one VDOM/
+    tunnel per customer, this codebase's existing convention -- see
+    fortigate_vdom on custom_fields.py); fortigate_vip_name is stored on
+    the shadow Prefix, since a customer can have multiple sites/VIPs inside
+    one VDOM.
+    """
     real_net = ipaddress.ip_network(real_cidr, strict=False)
     shadow_net = ipaddress.ip_network(shadow_cidr, strict=False)
     if real_net.prefixlen != shadow_net.prefixlen:
@@ -46,4 +66,15 @@ def onboard_site(customer_ns_name, site_name, real_cidr, shadow_cidr):
     )
     real_prefix.custom_field_data["nat_shadow_prefix"] = str(shadow_prefix.id)
     real_prefix.save()
+
+    if fortigate_vip_name:
+        shadow_prefix.custom_field_data["fortigate_vip_name"] = fortigate_vip_name
+        shadow_prefix.save()
+    if fortigate_vdom:
+        customer_ns.custom_field_data["fortigate_vdom"] = fortigate_vdom
+    if fortigate_tunnel_name:
+        customer_ns.custom_field_data["fortigate_tunnel_name"] = fortigate_tunnel_name
+    if fortigate_vdom or fortigate_tunnel_name:
+        customer_ns.save()
+
     return real_prefix, shadow_prefix

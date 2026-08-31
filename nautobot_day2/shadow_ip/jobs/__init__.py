@@ -1,3 +1,5 @@
 from .onboard_site_job import OnboardSite
 from .catalog_shadow_ip import CatalogShadowIP
 from .reconcile_device_ips import ReconcileDeviceIPs
+from .discover_new_devices import DiscoverNewDevices
+from .validate_vip_coverage import ValidateVIPCoverage

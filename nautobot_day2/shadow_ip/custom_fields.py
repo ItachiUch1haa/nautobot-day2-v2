@@ -24,8 +24,12 @@ client = NautobotClient()
 URL = client.url
 
 # ── Field definitions ─────────────────────────────────────────────────────────
-# Shadow IP spec §1.5, plus this build's controller_managed/managing_controller
-# (architecture doc §5) added to the same one-time bootstrap.
+# Shadow IP spec §1.5, plus fortigate_vip_name/fortigate_tunnel_name (VIP
+# Management architecture doc §3.5, set on the shadow Prefix and customer
+# Namespace respectively -- fortigate_vdom stays at Namespace level per that
+# doc's own recommendation, already the convention in this codebase), plus
+# this build's controller_managed/managing_controller (architecture doc §5)
+# added to the same one-time bootstrap.
 
 CUSTOM_FIELDS = [
     {
@@ -51,6 +55,18 @@ CUSTOM_FIELDS = [
     {
         "name": "fortigate_vdom",
         "label": "FortiGate VDOM",
+        "type": "text",
+        "content_types": ["ipam.namespace"],
+    },
+    {
+        "name": "fortigate_vip_name",
+        "label": "FortiGate VIP Name",
+        "type": "text",
+        "content_types": ["ipam.prefix"],
+    },
+    {
+        "name": "fortigate_tunnel_name",
+        "label": "FortiGate Tunnel Name",
         "type": "text",
         "content_types": ["ipam.namespace"],
     },

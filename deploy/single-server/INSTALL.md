@@ -507,7 +507,12 @@ docker compose exec nautobot python3 /source/nautobot-day2/nautobot_day2/shadow_
 
 Once the dry run looks right, re-run without `--dry-run` to actually
 create `nat_shadow_prefix`, `mapped_shadow_ip`, `real_ip`,
-`fortigate_vdom`, `controller_managed`, and `managing_controller`.
+`fortigate_vdom`, `fortigate_vip_name`, `fortigate_tunnel_name`,
+`controller_managed`, and `managing_controller`. The script is idempotent
+(`SKIP` for anything already created) — re-running it after the two new
+VIP fields (`fortigate_vip_name`, `fortigate_tunnel_name`, added per the
+VIP Management architecture doc §3.5) were added to `CUSTOM_FIELDS` only
+creates those two, it won't touch the fields already live from an earlier run.
 **PENDING LIVE VERIFICATION** (see `shadow_ip/custom_fields.py`'s own
 docstring) — the "object"-type fields' payload shape hasn't been
 confirmed against a running server yet; check the actual API response
@@ -519,15 +524,20 @@ Also required, both one-time manual steps (code cannot do these):
    creates the other device roles — `onboarding_mcp`'s new SD-WAN edge
    role (architecture doc §6) has no Nautobot Role object until one is
    created with that exact name.
-2. **Register the `CatalogShadowIP` Job Hook**: Nautobot UI → Extensibility
-   → Job Hooks → add one triggering on **IPAddress**, action **create**,
-   pointed at the `CatalogShadowIP` job, scoped to exclude the `Global`
-   namespace (so it doesn't re-trigger on the shadow record it just
-   created). Nothing in `docker compose up` registers this — it's a
-   one-time click-through, same category as enabling Jobs below.
+2. **Register (or update) the `CatalogShadowIP` Job Hook**: Nautobot UI →
+   Extensibility → Job Hooks → add one triggering on **IPAddress**, actions
+   **create AND update** (update was added to `CatalogShadowIP` to catch a
+   device being manually re-IP'd — see the job's own docstring), pointed at
+   the `CatalogShadowIP` job, scoped to exclude the `Global` namespace (so
+   it doesn't re-trigger on the shadow record it just created). If a hook
+   was already registered for **create** only from an earlier run, edit it
+   to add **update** rather than creating a second hook. Nothing in
+   `docker compose up` registers this — it's a one-time click-through, same
+   category as enabling Jobs below.
 
-Then enable every `nautobot_day2` Job, including the new `OnboardSite`,
-`CatalogShadowIP`, and `ReconcileDeviceIPs` (see Phase 6 row 5 of the
+Then enable every `nautobot_day2` Job, including `OnboardSite`,
+`CatalogShadowIP`, `ReconcileDeviceIPs`, and the two new jobs
+`DiscoverNewDevices` and `ValidateVIPCoverage` (see Phase 6 row 5 of the
 master project reference for why this step exists — `Job.enabled`
 defaults to `False` on fresh registration):
 
@@ -538,11 +548,20 @@ Job.objects.filter(module_name__startswith='nautobot_day2').update(enabled=True)
 EOF
 ```
 
-Finally, schedule `ReconcileDeviceIPs` via Nautobot's Job Scheduling UI
-(Jobs → Scheduled Jobs), interval 10-15 minutes per customer, once
-`FORTIGATE_NVA_BASE_URL`/`FORTIGATE_NVA_API_TOKEN` are set in `.env` —
-until then it will run and simply skip every tenant without a
-`fortigate_vdom` configured, which is harmless but does nothing useful.
+Finally, schedule via Nautobot's Job Scheduling UI (Jobs → Scheduled Jobs),
+once `FORTIGATE_NVA_BASE_URL`/`FORTIGATE_NVA_API_TOKEN` are set in `.env`
+— until then each will run and simply skip every tenant without a
+`fortigate_vdom` configured, which is harmless but does nothing useful:
+- `ReconcileDeviceIPs` — interval 10-15 minutes per customer.
+- `DiscoverNewDevices` — same cadence as `ReconcileDeviceIPs` is reasonable;
+  it reads the same DHCP lease table.
+- `ValidateVIPCoverage` — daily, per the VIP Management architecture doc §6.5.
+  It additionally needs `fortigate_vip_name` set on each customer's shadow
+  Prefix (pass it to the `OnboardSite` job, or set the custom field
+  directly for a site onboarded before this field existed) — without it, a
+  site is silently skipped rather than reconciled. Mismatches currently
+  only surface in the job's own log, not a ticket/alert channel — see
+  `docs/06-GAPS-AND-RECOMMENDATIONS.md` item 14.
 
 ## Phase 15 — full pipeline health check
 
@@ -619,7 +638,7 @@ whether the device itself was reachable.
 | 2 | Redis healthy | `docker compose ps redis` | `healthy` |
 | 3 | OpenBao unsealed | `docker compose exec openbao sh -c "BAO_ADDR=http://127.0.0.1:8200 bao status"` | `Sealed: false` |
 | 4 | Nautobot web healthy | `docker compose ps nautobot` | `healthy` |
-| 5 | `nautobot_day2` Jobs registered | Check 10.1 | 6 Job names (incl. `OnboardSite`, `CatalogShadowIP`, `ReconcileDeviceIPs`) |
+| 5 | `nautobot_day2` Jobs registered | Check 10.1 | 8 Job names (incl. `OnboardSite`, `CatalogShadowIP`, `ReconcileDeviceIPs`, `DiscoverNewDevices`, `ValidateVIPCoverage`) |
 | 6 | Worker on both queues | Check 10.2 | `default`, `nautobot_day2_sync` |
 | 7 | Sync-engine OpenBao identity works | Check 10.3 | `{}`, no auth error |
 | 8 | Onboarding wizard healthy | `curl 127.0.0.1:8081/health` | `{"status": "ok", ...}` |
@@ -627,7 +646,7 @@ whether the device itself was reachable.
 | 10 | Agent Broker REST healthy | `curl 127.0.0.1:8082/health` | `{"status": "ok", ...}` |
 | 11 | Agent Broker MCP process up | `docker compose logs agent-broker-mcp` | startup banner, no traceback |
 | 12 | onboarding-mcp process up | `docker compose logs onboarding-mcp` | startup banner, no traceback |
-| 13 | CatalogShadowIP Job Hook registered | Nautobot UI → Extensibility → Job Hooks | one hook, IPAddress/create, excluding `Global` |
+| 13 | CatalogShadowIP Job Hook registered | Nautobot UI → Extensibility → Job Hooks | one hook, IPAddress/create+update, excluding `Global` |
 | 14 | No `change-me` values left in `.env` | `grep change-me .env` | no output |
 | 15 | Ports 8081/8082/8090/8091 not reachable from outside this box's trusted network | `nc -zv <server-ip> 8091` from an *untrusted* network | connection refused/timeout |
 | 16 | OpenBao unseal key + root token stored off-box | — | confirmed with whoever owns secrets storage |

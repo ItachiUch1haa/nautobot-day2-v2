@@ -2,8 +2,8 @@
 FortiOS REST API client for the FortiGate NVA that performs the shadow-IP
 NAT -- NOT one of the customer-premise FortiGate firewalls already
 onboarded as devices via vendor_matrix.py (that's a separate, unrelated
-concern). This is the shared, per-VDOM NVA that ReconcileDeviceIPs and
-ValidateNATCoverage read from.
+concern). This is the shared, per-VDOM NVA that ReconcileDeviceIPs,
+DiscoverNewDevices, and ValidateVIPCoverage read from.
 
 PENDING LIVE VERIFICATION: built against FortiOS REST API's documented
 shape (token-header auth, /api/v2/monitor and /api/v2/cmdb endpoints,
@@ -58,6 +58,42 @@ def get_dhcp_leases(vdom):
         if mac and ip:
             leases[mac.lower()] = ip
     return leases
+
+
+def get_vip(vdom, name):
+    """Return the named static-NAT VIP object's extip/mappedip/type for the
+    given VDOM, or None if no such VIP exists on the firewall. Used by
+    ValidateVIPCoverage to reconcile Nautobot's recorded shadow/real prefix
+    pair against what's actually configured.
+
+    PENDING LIVE VERIFICATION: FortiOS's mappedip response shape for a
+    static-nat VIP has varied across 7.2.x/7.4.x -- confirmed shape here is
+    `mappedip: [{"range": "a.b.c.d-a.b.c.e"}]` per the architecture doc;
+    verify against the real appliance before trusting this parsing.
+    """
+    try:
+        resp = _session.get(
+            f"{_base_url()}/api/v2/cmdb/firewall/vip/{name}",
+            params={"vdom": vdom},
+            headers={"Authorization": f"Bearer {_api_token()}"},
+            timeout=15,
+        )
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+    except Exception as e:
+        raise Exception(f"FORTIGATE_UNREACHABLE: could not fetch VIP {name} for vdom={vdom} — {e}")
+
+    results = resp.json().get("results", [])
+    if not results:
+        return None
+    vip = results[0]
+    mappedip = vip.get("mappedip")
+    return {
+        "extip": vip.get("extip"),
+        "mappedip": mappedip[0].get("range") if mappedip else None,
+        "type": vip.get("type"),
+    }
 
 
 def get_ippools(vdom):
