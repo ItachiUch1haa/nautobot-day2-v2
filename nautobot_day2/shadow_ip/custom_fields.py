@@ -5,12 +5,23 @@ exactly -- same idempotent REST-based creation, same script shape -- run
 once via `python3 custom_fields.py [--dry-run]` as part of this build's
 new INSTALL.md phase, same as bootstrap_nautobot.py is for Phase 14.
 
-PENDING LIVE VERIFICATION: the "object" type fields (nat_shadow_prefix,
-mapped_shadow_ip, managing_controller) need their target model specified
-in whatever shape Nautobot's actual /api/extras/custom-fields/ schema
-expects for a cross-model reference -- verify the payload below against
-the running server's OPTIONS/schema for that endpoint before relying on
-it; adjust CUSTOM_FIELDS' payloads if the live API rejects the guessed key.
+LIVE-VERIFIED on the lab server (Nautobot 2.3.16): the "object" custom
+field type used below for nat_shadow_prefix/mapped_shadow_ip/
+managing_controller does not exist on this Nautobot version at all --
+confirmed against the live `OPTIONS /api/extras/custom-fields/` schema,
+whose `type` enum is only text/integer/boolean/date/url/select/
+multi-select/json/markdown (object/multi-object custom field types were
+added in a later Nautobot release than what's deployed here). All three
+fields are now `type: "text"` storing the target object's UUID as a
+plain string instead -- this is not a workaround, it's what every
+consumer already did: every job (CatalogShadowIP, ReconcileDeviceIPs,
+ValidateVIPCoverage, etc.) only ever reads/writes these via
+`custom_field_data["field_name"] = str(other_obj.id)` and
+`Model.objects.get(id=that_string)`, through the Django ORM directly,
+never through the REST API's object-type serialization. The only thing
+lost is Nautobot's built-in clickable-reference UI/validation for an
+"object" field -- functionally these behave identically for this
+codebase's own use.
 """
 import argparse
 import os
@@ -35,16 +46,14 @@ CUSTOM_FIELDS = [
     {
         "name": "nat_shadow_prefix",
         "label": "NAT Shadow Prefix",
-        "type": "object",
+        "type": "text",
         "content_types": ["ipam.prefix"],
-        "object_field_content_type": "ipam.prefix",
     },
     {
         "name": "mapped_shadow_ip",
         "label": "Mapped Shadow IP",
-        "type": "object",
+        "type": "text",
         "content_types": ["ipam.ipaddress"],
-        "object_field_content_type": "ipam.ipaddress",
     },
     {
         "name": "real_ip",
@@ -79,9 +88,8 @@ CUSTOM_FIELDS = [
     {
         "name": "managing_controller",
         "label": "Managing Controller",
-        "type": "object",
+        "type": "text",
         "content_types": ["dcim.device"],
-        "object_field_content_type": "dcim.device",
     },
 ]
 

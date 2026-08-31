@@ -513,10 +513,15 @@ create `nat_shadow_prefix`, `mapped_shadow_ip`, `real_ip`,
 VIP fields (`fortigate_vip_name`, `fortigate_tunnel_name`, added per the
 VIP Management architecture doc §3.5) were added to `CUSTOM_FIELDS` only
 creates those two, it won't touch the fields already live from an earlier run.
-**PENDING LIVE VERIFICATION** (see `shadow_ip/custom_fields.py`'s own
-docstring) — the "object"-type fields' payload shape hasn't been
-confirmed against a running server yet; check the actual API response
-here and adjust the script if it's rejected.
+**LIVE-VERIFIED**: this Nautobot version has no `"object"` custom field
+type at all (confirmed against the running server's own
+`OPTIONS /api/extras/custom-fields/` schema — its `type` enum is only
+text/integer/boolean/date/url/select/multi-select/json/markdown).
+`nat_shadow_prefix`, `mapped_shadow_ip`, and `managing_controller` are
+`type: "text"` (storing the target object's UUID as a plain string) for
+this reason — see `shadow_ip/custom_fields.py`'s own docstring for why
+this is functionally identical for every consumer in this codebase, not
+a workaround.
 
 Also required, both one-time manual steps (code cannot do these):
 

@@ -281,3 +281,25 @@ with the same shadow IP/VIP tracking available on the new-site path
 either way. Neither surface batches multiple sites into one flow; each
 onboards one site at a time by design (see the prior turn's confirmation
 of this for both).
+
+## 16. `"object"` custom field type doesn't exist on this Nautobot version — live-verified on the lab server
+
+First real-hardware test (`custom_fields.py`, live, not `--dry-run`) confirmed
+`nat_shadow_prefix`, `mapped_shadow_ip`, and `managing_controller` all failed
+with `{"type":["object is not a valid choice."]}`. Checked the running
+server's own `OPTIONS /api/extras/custom-fields/` schema directly rather than
+guess again: this Nautobot version's `CustomField.type` enum is only
+`text/integer/boolean/date/url/select/multi-select/json/markdown` — no
+`object`/`multi-object` type at all (added in a later Nautobot release than
+what's deployed here). Fixed by changing all three fields to `type: "text"`,
+storing the target object's UUID as a plain string. Confirmed this is not a
+functional downgrade: every consumer (`CatalogShadowIP`, `ReconcileDeviceIPs`,
+`ValidateVIPCoverage`, `site_onboarding.onboard_site()`, etc.) already only
+ever read/wrote these fields as plain strings through the Django ORM
+(`custom_field_data["x"] = str(obj.id)` / `Model.objects.get(id=that_string)`),
+never through the REST API's object-type serialization — the only thing lost
+is Nautobot's built-in clickable-reference UI for an "object" field.
+
+Worth checking if/when this environment upgrades Nautobot past whatever
+version first ships `object`/`multi-object` custom field types — switching
+back would be a nice-to-have UI improvement then, not a requirement.
