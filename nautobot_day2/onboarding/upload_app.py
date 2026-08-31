@@ -18,6 +18,8 @@ import io
 import argparse
 import re
 import time
+import ipaddress
+from types import SimpleNamespace
 from datetime import datetime
 from functools import lru_cache
 from flask import (
@@ -490,20 +492,42 @@ def api_validate_credentials():
         {"vendor": "...", "role": "...", "access_method": "...",
          "platform": "..." (optional, defaults to the combo's default),
          "ip": "..." (only needed for ssh access methods)}, ...
-    ] }
+    ], "real_cidr": "..." (optional), "shadow_cidr": "..." (optional) }
+
+    real_cidr/shadow_cidr (Step 1's Shadow IP / VIP Tracking fields, when
+    set): for a site behind FortiGate static-NAT, the customer's real
+    subnet is typically NOT reachable from wherever this wizard runs --
+    only the shadow-translated address is, since that's the entire point
+    of the shadow-IP architecture (this was confirmed as a live constraint
+    on the lab server, not assumed). So for ssh tests, when a device's
+    entered ip falls inside real_cidr, this computes its shadow IP with
+    the same offset-preserving math CatalogShadowIP uses (shadow_math.
+    compute_shadow_ip) and tests THAT instead -- computed directly from
+    the CIDR pair, without needing the device or its shadow IP to already
+    exist in Nautobot (they don't yet, at this step in the wizard).
     """
     from create_tenant import LAB_PROFILES_DIR
     from vendor_matrix import needs_enable_mode
     from vendor_test_app import test_ssh, test_mist, test_aruba_central, find_block
     from openbao_client import fetch_openbao_secret
+    from shadow_ip.shadow_math import compute_shadow_ip
 
     data = request.json or {}
     slug = data.get('slug')
     tests = data.get('tests')
+    real_cidr = data.get('real_cidr', '')
+    shadow_cidr = data.get('shadow_cidr', '')
     if not slug:
         return jsonify({'error': "'slug' is required"}), 400
     if not isinstance(tests, list) or not tests:
         return jsonify({'error': "'tests' must be a non-empty list"}), 400
+
+    real_net = None
+    if real_cidr and shadow_cidr:
+        try:
+            real_net = ipaddress.ip_network(real_cidr, strict=False)
+        except ValueError:
+            return jsonify({'error': f"Invalid real_cidr '{real_cidr}'"}), 400
 
     env_path = os.path.join(LAB_PROFILES_DIR, f"{slug}.env")
     if not os.path.exists(env_path):
@@ -534,7 +558,25 @@ def api_validate_credentials():
         # objects, but SSH connections need a bare address. Without this,
         # netmiko/paramiko tries to resolve "x.x.x.x/24" as a hostname and
         # fails with a DNS-style error instead of a real connection attempt.
-        ip            = t.get('ip', '').split('/')[0]
+        real_ip       = t.get('ip', '').split('/')[0]
+        ip            = real_ip
+        shadow_ip_used = None
+
+        # If this site is shadow-IP tracked and this device's real ip falls
+        # inside real_cidr, test connectivity via its (would-be) shadow IP
+        # instead -- the real subnet typically isn't reachable from here at
+        # all, only the FortiGate's NAT-translated address is. Computed
+        # directly from the CIDR pair; the device and its shadow IP don't
+        # need to exist in Nautobot yet for this, since it's pure offset math.
+        if real_net is not None and real_ip:
+            try:
+                if ipaddress.ip_address(real_ip) in real_net:
+                    shadow_ip_used = compute_shadow_ip(
+                        real_ip, SimpleNamespace(prefix=real_cidr), SimpleNamespace(prefix=shadow_cidr)
+                    )
+                    ip = shadow_ip_used
+            except ValueError:
+                pass  # not a valid address -- fall through, existing 'ip is required' check below still applies
 
         dtype = vendor_to_device_type(vendor, role)
         if not dtype:
@@ -598,6 +640,9 @@ def api_validate_credentials():
                 enable = openbao_data.get(enable_var, '')
             user_var, pass_var = full_names[0], full_names[1]
             test_result = test_ssh(ip, yaml_key, block, openbao_data.get(user_var, ''), openbao_data.get(pass_var, ''), enable)
+            if shadow_ip_used:
+                test_result['ip_tested'] = shadow_ip_used
+                test_result['note'] = f"tested via shadow IP {shadow_ip_used} (real: {real_ip})"
 
         elif access_method == 'mist':
             test_result = test_mist(

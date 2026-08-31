@@ -840,7 +840,11 @@ function runCredentialValidation() {
   fetch("/api/validate-credentials", {
     method:  "POST",
     headers: {"Content-Type": "application/json"},
-    body:    JSON.stringify({ slug: slug, tests: tests })
+    body:    JSON.stringify({
+      slug: slug, tests: tests,
+      real_cidr:   state.siteConfig ? state.siteConfig.real_cidr : "",
+      shadow_cidr: state.siteConfig ? state.siteConfig.shadow_cidr : ""
+    })
   })
   .then(function(r) { return r.json(); })
   .then(function(data) {
@@ -861,7 +865,7 @@ function renderCredValidationResults(results) {
     skip:            "badge-muted"
   };
   var html = "<table class=\"device-table\"><thead><tr>" +
-    "<th>Vendor</th><th>Role</th><th>Access Method</th><th>Result</th><th>Message</th>" +
+    "<th>Vendor</th><th>Role</th><th>Access Method</th><th>Result</th><th>Message</th><th>Tested Via</th>" +
     "</tr></thead><tbody>";
   results.forEach(function(r) {
     var status = (r.status || "error");
@@ -873,6 +877,7 @@ function renderCredValidationResults(results) {
       "<td>" + (r.access_method || "") + "</td>" +
       "<td><span class=\"badge " + bc + "\">" + status + "</span></td>" +
       "<td style=\"font-size:12px\">" + msg + "</td>" +
+      "<td style=\"font-size:12px\">" + (r.note || (r.ip_tested ? "IP " + r.ip_tested : "")) + "</td>" +
       "</tr>";
   });
   html += "</tbody></table>";
