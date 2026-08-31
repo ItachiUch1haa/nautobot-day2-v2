@@ -67,7 +67,21 @@ def onboard_site(
         )
 
     global_ns = Namespace.objects.get(name="Global")
-    if Prefix.objects.filter(namespace=global_ns).net_overlap(shadow_cidr).exists():
+    # LIVE-VERIFIED on the lab server: PrefixQuerySet on this Nautobot version
+    # has no net_overlap() at all (AttributeError, confirmed by introspecting
+    # dir() on a live queryset) -- that method name was carried over from the
+    # architecture doc's spec code, never actually available. Two valid CIDR
+    # blocks can only ever be disjoint, equal, or one strictly containing the
+    # other, so "any overlap" is fully covered by combining the two real
+    # methods that do exist: net_contains_or_equals (an existing Global
+    # prefix is a superset of or equal to shadow_cidr) and
+    # net_contained_or_equal (an existing Global prefix is a subset of or
+    # equal to shadow_cidr).
+    existing_shadow = Prefix.objects.filter(namespace=global_ns)
+    if (
+        existing_shadow.net_contains_or_equals(shadow_cidr).exists()
+        or existing_shadow.net_contained_or_equal(shadow_cidr).exists()
+    ):
         raise ShadowIPValidationError(
             f"shadow_cidr {shadow_cidr} overlaps an existing shadow Prefix in the "
             f"Global namespace -- shadow blocks must be unique across every customer."
