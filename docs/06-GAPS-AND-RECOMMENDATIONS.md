@@ -187,6 +187,26 @@ Celery worker's logs directly to find out. Worth fixing by having
 the chord completes, rather than leaving it to whatever Nautobot's
 own job-runner set at dispatch time.
 
+**Update, live-verified on the lab server: this is broader than the
+chord-callback theory above accounts for.** `OnboardSite` (shadow_ip) is a
+plain synchronous `Job` with no Celery chord, no async dispatch, nothing
+this codebase's own code could leave unclosed — and it shows the exact
+same symptom. Confirmed directly via `nautobot-server shell`: a real
+`OnboardSite` run whose Celery task log showed `succeeded in 1.78s` with
+the correct return value still had `JobResult.status == "PENDING"` and
+`date_done == None` afterward. So the root cause here isn't specific to
+this codebase's chord-callback jobs at all — something about how
+`JobResult.status`/`date_done` get persisted on this Nautobot deployment
+isn't working for *any* job, built-in or custom. Worth investigating at
+the Nautobot/Celery-result-backend level (not just in
+`sync_summary_callback`) before assuming a fix there alone would close
+this gap. `job_log_entries`, in contrast, ARE reliably persisted and
+readable on every job tested so far — `onboarding_mcp/tools_schema.py`'s
+`_wait_for_onboard_site()` and `upload_app.py`'s
+`_trigger_onboard_site_job()` now poll those instead of `.status` for
+exactly this reason, rather than trusting a field this deployment
+apparently never updates.
+
 ## 13. `onboarding-mcp` has no authentication yet — higher exposure than the broker
 
 Same category of gap as item 1 above, carried forward explicitly rather

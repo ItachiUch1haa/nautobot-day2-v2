@@ -1166,15 +1166,19 @@ def _trigger_onboard_site_job(
     Raises RuntimeError on any failure -- the caller decides whether that
     blocks device deployment.
 
-    LIVE-VERIFIED on the lab server: the original 15s timeout was too
-    tight -- a real OnboardSite run was observed completing successfully a
-    few seconds after this poller had already given up and reported a
-    false "timed out" failure to the caller, who then retried and hit
-    site_onboarding.py's overlap check rejecting its own already-succeeded
-    Prefix (see that module's note on why the check is now idempotent for
-    an exact-CIDR resubmit). Bumped to 45s headroom; the job-result
-    response/polling shape itself is confirmed correct now, not just
-    assumed.
+    LIVE-VERIFIED on the lab server, replacing an assumption that didn't
+    hold even after bumping the timeout: JobResult.status and .date_done
+    never transition away from PENDING/None on this Nautobot deployment,
+    confirmed via nautobot-server shell even for a job that Celery's own
+    log showed succeeding in under 2 seconds with the correct return
+    value. No timeout value fixes that -- status genuinely never changes,
+    for any job, on this deployment. What IS reliably persisted and
+    readable is job_log_entries: Nautobot's own internal "Job completed"
+    terminal log line on success, and any self.logger.error() message from
+    a job that raised. This polls those instead, then looks up the actual
+    real/shadow Prefix objects it created directly by CIDR+namespace over
+    REST rather than trust JobResult.result (same never-persists symptom
+    as .status here).
     """
     jr = client.get('extras/jobs', params={'name': 'Shadow IP: Onboard Site (real+shadow prefix pair)', 'limit': 1})
     job_matches = jr.json().get('results', []) if jr.ok else []
@@ -1206,18 +1210,59 @@ def _trigger_onboard_site_job(
     if not job_result_id:
         raise RuntimeError(f"Could not find a job-result id in the run response: {job_run_response}")
 
+    def _get_log_entries():
+        for url, params in (
+            (f'extras/job-results/{job_result_id}/logs/', None),
+            ('extras/job-log-entries/', {'job_result': job_result_id, 'limit': 100}),
+        ):
+            try:
+                r = client.get(url, params=params)
+            except Exception:
+                continue
+            if r.ok:
+                data = r.json()
+                entries = data.get('results', data) if isinstance(data, dict) else data
+                if isinstance(entries, list) and entries:
+                    return entries
+        return []
+
     deadline = time.time() + timeout_s
+    completed = False
     while time.time() < deadline:
-        r = client.get(f'extras/job-results/{job_result_id}')
-        if r.ok:
-            job_result = r.json()
-            status = (job_result.get('status') or {}).get('value') or job_result.get('status')
-            if status in ('completed', 'success', 'failed', 'errored'):
-                if status not in ('completed', 'success'):
-                    raise RuntimeError(f"OnboardSite job did not succeed (status={status})")
-                return job_result.get('result') or {}
+        entries = _get_log_entries()
+        if entries:
+            errors = [e for e in entries if (e.get('log_level') or e.get('level') or '').lower() in ('error', 'critical')]
+            if errors:
+                raise RuntimeError(f"OnboardSite job failed: {errors[-1].get('message', errors[-1])}")
+            if any('job completed' in (e.get('message') or '').lower() for e in entries):
+                completed = True
+                break
         time.sleep(interval_s)
-    raise RuntimeError(f"Timed out waiting for job result {job_result_id} to complete")
+    if not completed:
+        raise RuntimeError(f"Timed out waiting for job result {job_result_id} to complete")
+
+    shadow_id = None
+    shadow_lookup = client.get('ipam/prefixes', params={'prefix': shadow_cidr, 'limit': 5})
+    if shadow_lookup.ok:
+        for p in shadow_lookup.json().get('results', []):
+            if (p.get('namespace') or {}).get('name') == 'Global':
+                shadow_id = p['id']
+                break
+
+    real_id = None
+    real_lookup = client.get('ipam/prefixes', params={'prefix': real_cidr, 'limit': 5})
+    if real_lookup.ok:
+        for p in real_lookup.json().get('results', []):
+            if (p.get('namespace') or {}).get('name') == customer_ns_name:
+                real_id = p['id']
+                break
+
+    return {
+        'real_prefix_id': real_id,
+        'real_prefix': real_cidr,
+        'shadow_prefix_id': shadow_id,
+        'shadow_prefix': shadow_cidr,
+    }
 
 
 @app.route('/api/deploy', methods=['POST'])

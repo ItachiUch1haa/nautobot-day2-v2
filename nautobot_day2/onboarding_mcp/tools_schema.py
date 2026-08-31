@@ -164,27 +164,88 @@ def set_tenant(session_id, mode, tenant_name, tenant_slug=None):
     return result
 
 
-def _poll_job_result(job_run_response, timeout_s=45, interval_s=0.5):
+def _get_job_log_entries(job_result_id):
     """
-    PENDING LIVE VERIFICATION: extracts a job-result id from a triggered
-    Job's REST response and polls extras/job-results/{id}/ until it's no
-    longer pending/running. Exact response/status-field shape unconfirmed
-    against a live Nautobot server.
+    Fetch a JobResult's log entries, trying both plausible REST shapes for
+    this endpoint (a sub-resource action vs. the standalone job-log-entries
+    collection filtered by job_result) and using whichever responds.
+
+    LIVE-VERIFIED on the lab server, replacing an assumption that didn't
+    hold: JobResult.status and .date_done never transition away from
+    PENDING/None on this Nautobot deployment, even for a job that Celery's
+    own log confirmed succeeded in under 2 seconds with the correct return
+    value -- confirmed directly via nautobot-server shell, not guessed.
+    So status can never be used as a completion signal here, for any job,
+    regardless of how long a caller waits. job_log_entries, however, ARE
+    reliably persisted and readable -- including Nautobot's own internal
+    "Job completed" terminal log line on success, and any self.logger.error()
+    message from a job that raised -- so those are the real signal to poll.
+    """
+    for url, params in (
+        (f"extras/job-results/{job_result_id}/logs/", None),
+        ("extras/job-log-entries/", {"job_result": job_result_id, "limit": 100}),
+    ):
+        try:
+            r = client.get(url, params=params)
+        except Exception:
+            continue
+        if r.ok:
+            data = r.json()
+            entries = data.get("results", data) if isinstance(data, dict) else data
+            if isinstance(entries, list) and entries:
+                return entries
+    return []
+
+
+def _wait_for_onboard_site(job_run_response, customer_ns_name, real_cidr, shadow_cidr, timeout_s=45, interval_s=0.5):
+    """
+    Poll OnboardSite's job log entries (see _get_job_log_entries) until a
+    terminal signal appears, then look up the real/shadow Prefix objects it
+    created directly by CIDR+namespace over REST, rather than trust
+    JobResult.result -- that field showed the exact same never-persists
+    symptom as .status on this deployment, so it can't be trusted either.
     """
     job_result_id = job_run_response.get("id") or job_run_response.get("job_result", {}).get("id")
     if not job_result_id:
         raise ToolError(f"Could not find a job-result id in the run response: {job_run_response}")
 
     deadline = time.time() + timeout_s
+    completed = False
     while time.time() < deadline:
-        r = client.get(f"extras/job-results/{job_result_id}")
-        if r.ok:
-            job_result = r.json()
-            status = (job_result.get("status") or {}).get("value") or job_result.get("status")
-            if status in ("completed", "success", "failed", "errored"):
-                return job_result
+        entries = _get_job_log_entries(job_result_id)
+        if entries:
+            errors = [e for e in entries if (e.get("log_level") or e.get("level") or "").lower() in ("error", "critical")]
+            if errors:
+                raise ToolError(f"OnboardSite job failed: {errors[-1].get('message', errors[-1])}")
+            if any("job completed" in (e.get("message") or "").lower() for e in entries):
+                completed = True
+                break
         time.sleep(interval_s)
-    raise ToolError(f"Timed out waiting for job result {job_result_id} to complete")
+    if not completed:
+        raise ToolError(f"Timed out waiting for job result {job_result_id} to complete")
+
+    shadow_id = None
+    shadow_lookup = client.get("ipam/prefixes", params={"prefix": shadow_cidr, "limit": 5})
+    if shadow_lookup.ok:
+        for p in shadow_lookup.json().get("results", []):
+            if (p.get("namespace") or {}).get("name") == "Global":
+                shadow_id = p["id"]
+                break
+
+    real_id = None
+    real_lookup = client.get("ipam/prefixes", params={"prefix": real_cidr, "limit": 5})
+    if real_lookup.ok:
+        for p in real_lookup.json().get("results", []):
+            if (p.get("namespace") or {}).get("name") == customer_ns_name:
+                real_id = p["id"]
+                break
+
+    return {
+        "real_prefix_id": real_id,
+        "real_prefix": real_cidr,
+        "shadow_prefix_id": shadow_id,
+        "shadow_prefix": shadow_cidr,
+    }
 
 
 def set_site(
@@ -280,12 +341,12 @@ def set_site(
         if not run_resp.ok:
             raise ToolError(f"FAILED triggering OnboardSite: {run_resp.status_code}: {run_resp.text[:160]}")
 
-        job_result = _poll_job_result(run_resp.json())
-        status = (job_result.get("status") or {}).get("value") or job_result.get("status")
-        if status not in ("completed", "success"):
-            raise ToolError(f"OnboardSite job did not succeed (status={status}) — DEVICE_INTAKE remains unreachable")
-
-        onboard_result = job_result.get("result") or {}
+        onboard_result = _wait_for_onboard_site(
+            run_resp.json(),
+            customer_ns_name=job_data["customer_ns_name"],
+            real_cidr=real_cidr,
+            shadow_cidr=shadow_cidr,
+        )
         site_state = {
             "id": None if str(site_id).startswith("DRY:") else site_id,
             "name": site_name,
