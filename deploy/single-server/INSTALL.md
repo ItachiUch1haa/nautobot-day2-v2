@@ -209,6 +209,19 @@ unseal key again every time this container restarts (see the note at the
 end of this phase, and the earlier discussion in this session about
 stopping the VM overnight).
 
+**LIVE-VERIFIED, do not revoke the root token as routine hygiene once
+Phase 8 is done, even though nothing past this point normally needs
+it**: `bao operator generate-root` (the standard "recover admin access
+using just the unseal key" ceremony every Vault/OpenBao runbook relies
+on) returned `permission denied` on every attempt on this OpenBao
+build/version, with no token of any kind available to authorize it —
+see `docs/06-GAPS-AND-RECOMMENDATIONS.md` §18 for the full finding. The
+only way back in, once hit for real, was wiping OpenBao's entire data
+volume and redoing this phase from scratch — fine on a fresh install
+with nothing in `kv/` yet, **not** fine once real tenant credentials
+exist. Keep at least one valid privileged token stored securely
+off-box for the life of this OpenBao instance.
+
 ### 8.2 — Unseal
 
 ```bash

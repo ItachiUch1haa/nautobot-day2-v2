@@ -395,3 +395,69 @@ added.
 Worth checking if/when this environment upgrades Nautobot past whatever
 version first ships `object`/`multi-object` custom field types — switching
 back would be a nice-to-have UI improvement then, not a requirement.
+
+## 18. OpenBao's `generate-root` recovery ceremony returns `permission denied` on this build — losing the root token may mean a full data wipe, not a documented recovery
+
+**LIVE-VERIFIED** on this deployment's `openbao/openbao:latest` image
+(OpenBao 2.6.2, single unseal-key-share test-tier config): after
+revoking the initial root token (standard practice once the AppRoles
+that actually authenticate every service are set up in Phase 8 — nothing
+past that point should need the root token at all), attempting to
+recover admin access via `bao operator generate-root` failed at every
+step with `{"errors":["permission denied"]}` on
+`PUT /v1/sys/generate-root-token/attempt` — tried via the CLI (with and
+without `-otp`), and directly via `curl -X PUT` against both the CLI's
+own reported path (`/v1/sys/generate-root-token/attempt`, 403) and the
+standard Vault-compatible path (`/v1/sys/generate-root/attempt`, `405`/
+`{"errors":["unsupported operation"]}` — a genuinely different error,
+suggesting that path is simply not registered on this OpenBao version
+rather than being an auth issue). No token of any kind was available at
+the time (root revoked, and the three AppRole-issued tokens only carry
+narrow `kv/data/tenants/*` policies, nothing with `sudo` on `sys/*`).
+
+This is surprising: in standard HashiCorp Vault, `sys/generate-root/attempt`
+is explicitly designed to be reachable by *any* unseal-key holder with
+**no token at all** — it is the intentional "break glass" path so an
+operator who still holds the unseal key(s) can always recover admin
+access even after losing every token. Getting a hard permission-denied
+here, with a completely stock config (no custom ACLs, no Sentinel-style
+policies, nothing touched beyond this install's own Phase 8 steps),
+means that guarantee did not hold on this specific OpenBao build/version
+in this environment. Root cause not identified — could be an OpenBao-specific
+hardening change vs upstream Vault, a version-specific bug, or leftover
+state from an interrupted `rotate-keys` ceremony run moments earlier in
+the same session (unconfirmed either way; not reproduced from a clean
+sequence with the time available).
+
+**What actually worked, when this was hit for real**: since nothing had
+yet been written into `kv/` (no tenant had been onboarded through the
+wizard/broker/onboarding-mcp yet — confirmed via a `smoketest`/`ssh`
+lookup returning `{}` beforehand), the practical fix was to wipe
+OpenBao's data volume entirely and redo Phase 8 from scratch (new
+unseal key, new root token, new AppRoles/policies/Secret IDs). This is
+**not** a viable fix once any real tenant secrets exist in `kv/` — at
+that point a `generate-root` failure like this would mean genuinely
+losing access to every credential OpenBao holds, with no way back in
+short of restoring from a backup taken before the root token was lost.
+
+**Action items before this OpenBao instance ever holds real customer
+credentials:**
+1. **Do not revoke the root token as routine hygiene** the way Phase 8's
+   own text currently implies is fine ("nothing past this point needs
+   the root token"). Keep at least one valid privileged token stored
+   securely (a password manager, not this box) at all times, specifically
+   *because* the documented recovery path for losing it does not
+   reliably work here.
+2. Reproduce this failure from a clean, isolated sequence (fresh
+   OpenBao volume, unseal, revoke root immediately, then attempt
+   `generate-root` with nothing else done in between) to confirm whether
+   it's truly unconditional on this build/version, or specific to the
+   rotate-keys-then-revoke sequence that preceded it here.
+3. If it reproduces cleanly, file this upstream against
+   `openbao/openbao` — a broken "break glass" recovery path is a
+   significant operational risk for any production deployment relying on
+   OpenBao/Vault-standard operator documentation.
+4. Once real tenant secrets exist in `kv/`, treat OpenBao backup/restore
+   (`docs/06-GAPS-AND-RECOMMENDATIONS.md` §9 already flags backup/DR as
+   generally out of scope of this review) as the *only* real safety net
+   for a lost-root-token scenario on this build — not `generate-root`.
