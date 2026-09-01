@@ -53,11 +53,28 @@ class CatalogShadowIP(JobHookReceiver):
         required positional argument: 'snapshots'. The method body already
         handled snapshots being falsy/None correctly (`(snapshots or {})`
         below) -- the only problem was the missing default value here.
+
+        LIVE-VERIFIED, a third bug found on the same test's actual create
+        trigger (the previous two fixes let it get this far for the first
+        time): IPAddress has no public `namespace` attribute on this
+        Nautobot version at all -- confirmed against the installed model
+        source (nautobot/ipam/models.py), which only exposes a private
+        `_namespace` property (`_provided_namespace` on an unsaved
+        in-memory instance, else `self.parent.namespace`, else the default
+        namespace) and accepts `namespace=` only as an __init__ kwarg for
+        constructing a new, not-yet-saved instance. A freshly
+        database-queried instance -- exactly what a job hook receives --
+        has none of that, so `real_ip.namespace` raised AttributeError:
+        "'IPAddress' object has no attribute 'namespace'" the first time
+        this hook actually ran against a real create event. `real_ip.parent`
+        (a Prefix, which does have a real `namespace` FK) is already relied
+        on two lines below this check, so `real_ip.parent.namespace` is the
+        correct, already-assumed-safe path here too.
         """
         if action not in ("create", "update"):
             return
         real_ip = changed_object
-        if real_ip.namespace.name == "Global":
+        if real_ip.parent.namespace.name == "Global":
             return  # this is already a shadow record, never re-derive from itself
 
         if action == "update":
