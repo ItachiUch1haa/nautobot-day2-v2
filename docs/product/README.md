@@ -14,7 +14,7 @@ as a proper product space — one page per file below, in this order.
 | [`04-GLOSSARY-AND-CONCEPTS.md`](./04-GLOSSARY-AND-CONCEPTS.md) | Domain concepts a new reader needs before the other pages make sense — tenant/namespace model, shadow IP, VIP coverage, secrets groups, etc. |
 | [`05-SECURITY-AND-COMPLIANCE.md`](./05-SECURITY-AND-COMPLIANCE.md) | Security posture as of this writing — what's enforced today, what's a known open gap, and priority to close each. Stakeholder-level summary of `docs/06-GAPS-AND-RECOMMENDATIONS.md`. |
 | [`06-KNOWN-ISSUES-AND-RISKS.md`](./06-KNOWN-ISSUES-AND-RISKS.md) | Condensed, non-security operational risks and open questions — the rest of `docs/06-GAPS-AND-RECOMMENDATIONS.md`, in table form. |
-| [`07-ROADMAP.md`](./07-ROADMAP.md) | Roadmap page **template only** — structure and how to use it. Not populated; priorities go here once decided. |
+| [`07-ROADMAP.md`](./07-ROADMAP.md) | Roadmap — the five-theme forward vision (complete system of record, command execution abstraction, chat/MCP inventory search & reporting, config change history & approval workflow, interactive add/edit/delete via MCP), plus a Now/Next/Later structure still to be filled in with sized, sequenced items. |
 
 ## How this set relates to the engineering docs
 
