@@ -540,6 +540,7 @@ def deploy_site(session_id):
                 namespace_id=tenant.get("namespace_id"),
                 real_prefix_id=site["real_prefix_id"],
                 real_prefix_cidr=site["real_prefix_cidr"],
+                shadow_prefix_id=site.get("shadow_prefix_id"),
             )
             device_statuses.append(result)
         except nautobot_deployer.DeployError as e:

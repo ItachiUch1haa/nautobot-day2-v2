@@ -90,7 +90,70 @@ def _resolve_platform_id(vendor, dtype):
     return client.get_id_by_name("dcim/platforms", label)
 
 
-def deploy_device(device, tenant_id, site_id, namespace_id, real_prefix_id, real_prefix_cidr):
+def _link_shadow_ip_sync(device_id, real_ip_id, real_host, real_prefix_cidr, shadow_prefix_id, active_status_id):
+    """
+    REST-only mirror of CatalogShadowIP's core logic (shadow_ip/jobs/
+    catalog_shadow_ip.py), called synchronously right after
+    set_primary_ip() for a device this module itself just created.
+
+    LIVE-VERIFIED this closes a race the reordering in deploy_device()
+    alone did not: the Job Hook fires the instant get_or_create_ip()'s
+    POST returns (queued off the IPAddress "create" signal), which is
+    BEFORE set_primary_ip()'s own three follow-up REST calls even start
+    -- confirmed live by a test device whose shadow IP got computed and
+    its mapped_shadow_ip custom field got set correctly (proving the hook
+    ran to completion) while device.primary_ip4 stayed on the real IP
+    (proving the hook's device lookup found nothing, since neither the
+    interface link nor primary_ip4 existed yet at that point no matter
+    which order this module's own calls run in afterward). This tool
+    (onboarding_mcp) only has REST access, not the Django ORM the hook
+    itself uses, so this reimplements the same offset-preserving math
+    (shadow_ip/shadow_math.py's compute_shadow_ip, inlined here since it
+    needs only ipaddress, no ORM) and the same get-or-create-shadow-IP
+    steps over REST, then sets primary_ip4 directly -- entirely
+    bypassing the hook's racy device lookup for this path. Idempotent
+    with the hook's own (separately still-running) attempt: whichever
+    writes first wins, the other's writes are harmless repeats of the
+    same values.
+    """
+    shadow_prefix = client.get(f"ipam/prefixes/{shadow_prefix_id}/").json()
+    shadow_net = ipaddress.ip_network(shadow_prefix["prefix"], strict=False)
+    real_net = ipaddress.ip_network(real_prefix_cidr, strict=False)
+    offset = int(ipaddress.ip_address(real_host)) - int(real_net.network_address)
+    shadow_ip_str = str(ipaddress.ip_address(int(shadow_net.network_address) + offset))
+    shadow_address = f"{shadow_ip_str}/{shadow_net.prefixlen}"
+
+    global_ns_id = client.get_id_by_name("ipam/namespaces", "Global")
+    if not global_ns_id:
+        raise DeployError("Nautobot 'Global' namespace not found")
+
+    shadow_id = None
+    existing = client.get("ipam/ip-addresses", params={"address": shadow_address, "limit": 5})
+    if existing.ok:
+        for obj in existing.json().get("results", []):
+            if obj.get("address") == shadow_address and (obj.get("namespace") or {}).get("id") == global_ns_id:
+                shadow_id = obj["id"]
+                break
+    if not shadow_id:
+        r = client.post("ipam/ip-addresses", {
+            "address": shadow_address,
+            "namespace": {"id": global_ns_id},
+            "status": {"id": active_status_id},
+            "type": "host",
+        })
+        if r.status_code != 201:
+            raise DeployError(f"FAILED creating shadow IP: {r.status_code}: {r.text[:120]}")
+        shadow_id = r.json()["id"]
+
+    client.patch(f"ipam/ip-addresses/{shadow_id}/", {"custom_fields": {"real_ip": real_host}})
+    client.patch(f"ipam/ip-addresses/{real_ip_id}/", {"custom_fields": {"mapped_shadow_ip": shadow_id}})
+
+    r2 = client.patch(f"dcim/devices/{device_id}/", {"primary_ip4": {"id": shadow_id}})
+    if not r2.ok:
+        raise DeployError(f"FAILED setting device primary_ip4 to shadow IP: {r2.status_code}: {r2.text[:120]}")
+
+
+def deploy_device(device, tenant_id, site_id, namespace_id, real_prefix_id, real_prefix_cidr, shadow_prefix_id=None):
     """
     Create one queued device (static or controller-managed AP) in
     Nautobot. Returns {hostname, device_id, ip_created, status}.
@@ -158,6 +221,8 @@ def deploy_device(device, tenant_id, site_id, namespace_id, real_prefix_id, real
         primary_msg = nautobot_onboard_v2.set_primary_ip(dev_id, ip_id, False)
         if "FAILED" in str(primary_msg):
             raise DeployError(f"primary_ip: {primary_msg}")
+        if shadow_prefix_id:
+            _link_shadow_ip_sync(dev_id, ip_id, mgmt_ip, real_prefix_cidr, shadow_prefix_id, active_status_id)
         ip_created = True
     # else: controller-managed AP with no IP yet at deploy time -- Device
     # created, IPAddress intentionally skipped; ReconcileDeviceIPs picks
