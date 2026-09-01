@@ -1241,11 +1241,31 @@ def _trigger_onboard_site_job(
     if not completed:
         raise RuntimeError(f"Timed out waiting for job result {job_result_id} to complete")
 
+    # LIVE-VERIFIED: Nautobot's REST API returns a nested `namespace` on a
+    # Prefix as a minimal {id, url, object_type} reference -- no "name" key
+    # at all. Comparing p['namespace']['name'] against 'Global'/
+    # customer_ns_name always evaluated to None == <string>, so this always
+    # returned None for both ids, on every site ever onboarded through this
+    # path (harmless so far since nothing downstream used them, but they're
+    # meant to be real values). Resolve namespace ids once and compare by
+    # id instead of by name.
+    global_ns_lookup = client.get('ipam/namespaces', params={'name': 'Global', 'limit': 1})
+    global_ns_id = None
+    if global_ns_lookup.ok:
+        results = global_ns_lookup.json().get('results', [])
+        global_ns_id = results[0]['id'] if results else None
+
+    customer_ns_lookup = client.get('ipam/namespaces', params={'name': customer_ns_name, 'limit': 1})
+    customer_ns_id = None
+    if customer_ns_lookup.ok:
+        results = customer_ns_lookup.json().get('results', [])
+        customer_ns_id = results[0]['id'] if results else None
+
     shadow_id = None
     shadow_lookup = client.get('ipam/prefixes', params={'prefix': shadow_cidr, 'limit': 5})
     if shadow_lookup.ok:
         for p in shadow_lookup.json().get('results', []):
-            if (p.get('namespace') or {}).get('name') == 'Global':
+            if (p.get('namespace') or {}).get('id') == global_ns_id:
                 shadow_id = p['id']
                 break
 
@@ -1253,7 +1273,7 @@ def _trigger_onboard_site_job(
     real_lookup = client.get('ipam/prefixes', params={'prefix': real_cidr, 'limit': 5})
     if real_lookup.ok:
         for p in real_lookup.json().get('results', []):
-            if (p.get('namespace') or {}).get('name') == customer_ns_name:
+            if (p.get('namespace') or {}).get('id') == customer_ns_id:
                 real_id = p['id']
                 break
 
