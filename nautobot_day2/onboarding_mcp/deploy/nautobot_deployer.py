@@ -143,11 +143,20 @@ def _link_shadow_ip_sync(device_id, real_ip_id, real_host, real_prefix_cidr, sha
         raise DeployError("Nautobot 'Global' namespace not found")
 
     def _find_existing_shadow():
-        existing = client.get("ipam/ip-addresses", params={"address": shadow_address, "limit": 5})
+        # LIVE-VERIFIED: filtering ipam/ip-addresses by ?address=<cidr> is
+        # unreliable for finding a record that demonstrably exists --
+        # confirmed live when this lookup found nothing immediately after
+        # this function's own POST got a 400 uniqueness conflict against
+        # that exact address (proving the row was there). Filtering by
+        # ?parent=<shadow_prefix_id> (an exact id match) plus a plain
+        # ?host= comparison (the bare IP, independent of whatever mask
+        # the row happens to be stored with) is the same pattern that
+        # reliably found records during this session's live debugging.
+        existing = client.get("ipam/ip-addresses", params={"parent": shadow_prefix_id, "limit": 50})
         if not existing.ok:
             return None
         for obj in existing.json().get("results", []):
-            if obj.get("address") == shadow_address and (obj.get("namespace") or {}).get("id") == global_ns_id:
+            if obj.get("host") == shadow_ip_str:
                 return obj["id"]
         return None
 
