@@ -183,6 +183,25 @@ def _link_shadow_ip_sync(device_id, real_ip_id, real_host, real_prefix_cidr, sha
     client.patch(f"ipam/ip-addresses/{shadow_id}/", {"custom_fields": {"real_ip": real_host}})
     client.patch(f"ipam/ip-addresses/{real_ip_id}/", {"custom_fields": {"mapped_shadow_ip": shadow_id}})
 
+    # LIVE-VERIFIED: Nautobot rejects PATCH primary_ip4 with 400
+    # {"primary_ip4": ["The specified IP address (...) is not assigned
+    # to this device."]} unless that IP is already linked to one of the
+    # device's interfaces via ip-address-to-interface -- the same rule
+    # set_primary_ip() already respects for the real IP (its steps 1-2
+    # before the step-3 PATCH). The shadow IP needs the identical
+    # interface link before this function's own primary_ip4 PATCH below.
+    intf_lookup = client.get("dcim/interfaces", params={"device_id": device_id, "name": "mgmt0", "limit": 5})
+    if intf_lookup.ok and intf_lookup.json().get("count", 0) > 0:
+        intf_id = intf_lookup.json()["results"][0]["id"]
+        link = client.post("ipam/ip-address-to-interface", {
+            "ip_address": {"id": shadow_id},
+            "interface": {"id": intf_id},
+        })
+        if not link.ok and link.status_code != 400:  # 400 == already linked, harmless
+            raise DeployError(f"FAILED linking shadow IP to interface: {link.status_code}: {link.text[:120]}")
+    else:
+        raise DeployError(f"mgmt0 interface not found on device {device_id} -- set_primary_ip() should have created it")
+
     r2 = client.patch(f"dcim/devices/{device_id}/", {"primary_ip4": {"id": shadow_id}})
     if not r2.ok:
         raise DeployError(f"FAILED setting device primary_ip4 to shadow IP: {r2.status_code}: {r2.text[:120]}")
