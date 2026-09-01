@@ -32,7 +32,7 @@ class CatalogShadowIP(JobHookReceiver):
 
         name = "Catalog shadow IP on real IP create or update"
 
-    def receive_job_hook(self, change, action, changed_object, snapshots):
+    def receive_job_hook(self, change, action, changed_object, snapshots=None):
         """React to a real IPAddress create/update by computing and cataloging its shadow IP.
 
         LIVE-VERIFIED on the lab server: Nautobot's JobHookReceiver.run()
@@ -43,6 +43,16 @@ class CatalogShadowIP(JobHookReceiver):
         IPAddress creation actually triggered this hook. The parameter was
         never used in this method's body either way, so this is a pure
         rename, not a behavior change.
+
+        LIVE-VERIFIED, a second signature bug found on the very next fresh
+        "create" trigger tested (via onboarding-mcp, after the wizard's own
+        earlier test device had already been created and only got its
+        shadow IP via a manual backfill, never through a live create
+        trigger with the fixed code): Nautobot doesn't always pass
+        snapshots at all, raising TypeError: receive_job_hook() missing 1
+        required positional argument: 'snapshots'. The method body already
+        handled snapshots being falsy/None correctly (`(snapshots or {})`
+        below) -- the only problem was the missing default value here.
         """
         if action not in ("create", "update"):
             return
