@@ -115,6 +115,21 @@ def _link_shadow_ip_sync(device_id, real_ip_id, real_host, real_prefix_cidr, sha
     with the hook's own (separately still-running) attempt: whichever
     writes first wins, the other's writes are harmless repeats of the
     same values.
+
+    LIVE-VERIFIED a further wrinkle in that idempotency claim, on the
+    very next fresh device tested after this function was first added:
+    "whichever writes first wins" assumed the loser's own pre-create GET
+    lookup would simply find what the winner already committed -- but
+    when this function's own GET and POST race directly against the
+    hook's separate get_or_create() (both attempting to create the exact
+    same shadow IPAddress row within the same narrow window), the loser
+    can hit its POST *after* its own GET already ran clean (found
+    nothing) but *after* the hook's create has since committed --
+    yielding a real 400 IntegrityError-backed conflict ("IP address with
+    this Parent and Host already exists"), not a duplicate creation.
+    Handled the same way any other race-loser should be: on that specific
+    409-shaped 400, re-fetch and use what the winner (the hook) created,
+    instead of treating it as a hard failure.
     """
     shadow_prefix = client.get(f"ipam/prefixes/{shadow_prefix_id}/").json()
     shadow_net = ipaddress.ip_network(shadow_prefix["prefix"], strict=False)
@@ -127,13 +142,16 @@ def _link_shadow_ip_sync(device_id, real_ip_id, real_host, real_prefix_cidr, sha
     if not global_ns_id:
         raise DeployError("Nautobot 'Global' namespace not found")
 
-    shadow_id = None
-    existing = client.get("ipam/ip-addresses", params={"address": shadow_address, "limit": 5})
-    if existing.ok:
+    def _find_existing_shadow():
+        existing = client.get("ipam/ip-addresses", params={"address": shadow_address, "limit": 5})
+        if not existing.ok:
+            return None
         for obj in existing.json().get("results", []):
             if obj.get("address") == shadow_address and (obj.get("namespace") or {}).get("id") == global_ns_id:
-                shadow_id = obj["id"]
-                break
+                return obj["id"]
+        return None
+
+    shadow_id = _find_existing_shadow()
     if not shadow_id:
         r = client.post("ipam/ip-addresses", {
             "address": shadow_address,
@@ -141,9 +159,17 @@ def _link_shadow_ip_sync(device_id, real_ip_id, real_host, real_prefix_cidr, sha
             "status": {"id": active_status_id},
             "type": "host",
         })
-        if r.status_code != 201:
+        if r.status_code == 201:
+            shadow_id = r.json()["id"]
+        elif r.status_code == 400 and "already exists" in r.text:
+            shadow_id = _find_existing_shadow()
+            if not shadow_id:
+                raise DeployError(
+                    f"FAILED creating shadow IP (lost race to the Job Hook, "
+                    f"but re-fetch still found nothing): {r.status_code}: {r.text[:120]}"
+                )
+        else:
             raise DeployError(f"FAILED creating shadow IP: {r.status_code}: {r.text[:120]}")
-        shadow_id = r.json()["id"]
 
     client.patch(f"ipam/ip-addresses/{shadow_id}/", {"custom_fields": {"real_ip": real_host}})
     client.patch(f"ipam/ip-addresses/{real_ip_id}/", {"custom_fields": {"mapped_shadow_ip": shadow_id}})
