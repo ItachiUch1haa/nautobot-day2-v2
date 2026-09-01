@@ -5,13 +5,32 @@ get_or_create_device_type(), get_or_create_device()) the same way
 chatops/worker.py already does (dynamically-loaded module, module-level
 _C cache) rather than re-deriving manufacturer/device-type/role lookups.
 
-Deliberately never sets device.primary_ip4 anywhere in this file --
-CatalogShadowIP (shadow_ip/jobs/catalog_shadow_ip.py) owns that, to avoid
-two code paths racing to set the same field (architecture doc §9). This
-module DOES create the mgmt0 interface and the real IPAddress (steps 1-2
-of nautobot_onboard_v2.set_primary_ip()) -- just not that function's
-step 3 (the primary_ip4 PATCH), which is the one line intentionally left
-out here.
+LIVE-VERIFIED, architecture doc §9's original design reversed: this file
+used to deliberately never set device.primary_ip4 (relying entirely on
+CatalogShadowIP's "create" job hook to find the device via
+real_ip.interfaces/assigned_object/a primary_ip4-already-set fallback,
+to avoid two code paths racing to set the same field). Live testing via
+onboarding-mcp's deploy_site() found this hook fires as a Celery task
+queued off the IPAddress "create" signal, which reliably raced ahead of
+this module's own follow-up ip-address-to-interface REST call --
+confirmed by a real device whose shadow IP custom field got computed and
+stored correctly (proving the hook ran and completed with no
+interfaces/assigned_object/primary_ip4 match, i.e. `device` resolved to
+None) while device.primary_ip4 stayed permanently None. Static devices
+(this module's entire purpose) never get a second chance at this: unlike
+controller-discovered APs, ReconcileDeviceIPs' DHCP-lease-drift check
+doesn't apply to them (no MAC-keyed DHCP lease to match against), so a
+lost race here is not self-healing.
+Now calls nautobot_onboard_v2.set_primary_ip() -- all 3 of its steps,
+same call the CSV wizard's onboard_devices() already makes -- so
+device.primary_ip4 is set to the real IP synchronously within this same
+deploy_device() call, giving CatalogShadowIP's "create"-path
+Device.objects.filter(primary_ip4=real_ip) fallback a real row to find
+regardless of how the interfaces-link race resolves. The hook still
+immediately supersedes it with the shadow IP once it runs (exactly the
+sequence already live-verified working end-to-end through the web
+wizard) -- this isn't "two code paths racing", it's the same
+briefly-real-then-shadow sequence the wizard always relied on.
 
 GAP FLAGGED, NOT SILENTLY PAPERED OVER: architecture doc §4/§6's
 add_static_device schema collects no hardware device model (unlike the
@@ -25,6 +44,7 @@ Device/Interface and explicitly skips IPAddress creation --
 ReconcileDeviceIPs already owns catching this on its next scheduled run
 (architecture doc §8) -- no polling logic needed here.
 """
+import ipaddress
 import os
 import sys
 
@@ -68,37 +88,6 @@ def _resolve_platform_id(vendor, dtype):
     if not label:
         return None
     return client.get_id_by_name("dcim/platforms", label)
-
-
-def _create_mgmt_interface_and_link_ip(device_id, ip_id, active_status_id):
-    """
-    Steps 1-2 of nautobot_onboard_v2.set_primary_ip(): get-or-create the
-    mgmt0 interface, link the IP to it via ip-address-to-interface.
-    Deliberately stops there -- step 3 (PATCH device.primary_ip4) is
-    intentionally NOT done here; CatalogShadowIP owns setting primary_ip4.
-    """
-    r = client.get("dcim/interfaces", params={"device_id": device_id, "name": "mgmt0", "limit": 5})
-    if r.ok and r.json().get("count", 0) > 0:
-        intf_id = r.json()["results"][0]["id"]
-    else:
-        r2 = client.post("dcim/interfaces", {
-            "device": {"id": device_id},
-            "name": "mgmt0",
-            "type": "1000base-t",
-            "mgmt_only": True,
-            "status": {"id": active_status_id},
-        })
-        if r2.status_code != 201:
-            raise DeployError(f"FAILED creating mgmt interface: {r2.status_code}: {r2.text[:120]}")
-        intf_id = r2.json()["id"]
-
-    r3 = client.post("ipam/ip-address-to-interface", {
-        "ip_address": {"id": ip_id},
-        "interface": {"id": intf_id},
-    })
-    if not r3.ok and r3.status_code != 400:  # 400 == already linked, harmless
-        raise DeployError(f"FAILED linking IP to interface: {r3.status_code}: {r3.text[:120]}")
-    return intf_id
 
 
 def deploy_device(device, tenant_id, site_id, namespace_id, real_prefix_id, real_prefix_cidr):
@@ -148,15 +137,27 @@ def deploy_device(device, tenant_id, site_id, namespace_id, real_prefix_id, real
     mgmt_ip = device.get("mgmt_ip") or device.get("current_ip")
     ip_created = False
     if mgmt_ip:
+        # LIVE-VERIFIED: passing the bare host mgmt_ip straight to
+        # get_or_create_ip() (no mask) got Nautobot to silently store it
+        # as a /32 host record instead of matching the site's real prefix
+        # mask -- confirmed via a live device whose IP came back as
+        # "10.99.4.10/32" against a 10.99.4.0/24 real prefix. The CSV
+        # wizard's row['ip'] column already carries its own mask from the
+        # uploaded CSV; this tool's add_static_device only ever collects a
+        # bare mgmt_ip, so derive the mask from real_prefix_cidr instead.
+        mask_length = ipaddress.ip_network(real_prefix_cidr, strict=False).prefixlen
+        address = f"{mgmt_ip}/{mask_length}"
         pfx_id, _ = nautobot_onboard_v2.get_or_create_prefix(
-            mgmt_ip, namespace_id, tenant_id, active_status_id, False, {}
+            address, namespace_id, tenant_id, active_status_id, False, {}
         )
         ip_id, ip_msg = nautobot_onboard_v2.get_or_create_ip(
-            mgmt_ip, namespace_id, tenant_id, active_status_id, pfx_id, False
+            address, namespace_id, tenant_id, active_status_id, pfx_id, False
         )
         if ip_msg.startswith("FAILED"):
             raise DeployError(f"ip: {ip_msg}")
-        _create_mgmt_interface_and_link_ip(dev_id, ip_id, active_status_id)
+        primary_msg = nautobot_onboard_v2.set_primary_ip(dev_id, ip_id, False)
+        if "FAILED" in str(primary_msg):
+            raise DeployError(f"primary_ip: {primary_msg}")
         ip_created = True
     # else: controller-managed AP with no IP yet at deploy time -- Device
     # created, IPAddress intentionally skipped; ReconcileDeviceIPs picks
