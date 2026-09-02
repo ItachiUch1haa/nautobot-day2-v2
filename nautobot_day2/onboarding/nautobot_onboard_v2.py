@@ -516,6 +516,100 @@ def set_primary_ip(device_id, ip_id, dry_run):
     return 'set' if r5.ok else f"FAILED setting primary: {r5.status_code}: {r5.text[:80]}"
 
 
+def link_shadow_ip_sync(device_id, real_ip_id, real_prefix_id, real_host, active_status_id, dry_run):
+    """
+    LIVE-VERIFIED: this wizard's own device path had the identical race
+    against CatalogShadowIP's Job Hook that onboarding_mcp's deploy path
+    was found and fixed for -- confirmed on a real customer tenant
+    ("Decathon Sports"), 4/4 devices deployed via this exact code path,
+    every one with its shadow IP correctly computed and its
+    mapped_shadow_ip custom field set (proving the hook ran to
+    completion) while device.primary_ip4 stayed on the real IP for all
+    four uniformly (proving the hook's device lookup lost the race every
+    time, not intermittently) -- this function was never called from
+    here, only from onboarding_mcp/deploy/nautobot_deployer.py, so this
+    wizard path never got the equivalent fix until now.
+
+    A REST-only mirror of CatalogShadowIP's core logic (shadow_ip/jobs/
+    catalog_shadow_ip.py) -- this module has no Django ORM access, only
+    NautobotClient REST, same constraint onboarding_mcp's deploy path
+    has. Self-contained: looks up the real prefix's own nat_shadow_prefix
+    custom field rather than requiring the caller to already know the
+    shadow prefix id, so a caller only needs what it already has (the
+    real prefix id, from get_or_create_prefix()'s own return value).
+    A no-op, not a failure, when nat_shadow_prefix isn't set -- most
+    sites don't use shadow IP tracking at all, and this function is
+    called unconditionally for every device row that has an IP.
+    Idempotent with the hook's own (separately still-running) attempt:
+    whichever writes first wins, the other's writes are harmless repeats
+    of the same values.
+    """
+    if dry_run or str(device_id).startswith('DRY:') or str(real_ip_id).startswith('DRY:'):
+        return 'would link (dry run)'
+
+    real_prefix = client.get(f"ipam/prefixes/{real_prefix_id}/").json()
+    shadow_prefix_id = real_prefix.get("custom_fields", {}).get("nat_shadow_prefix")
+    if not shadow_prefix_id:
+        return 'skipped (no shadow prefix for this site)'
+
+    shadow_prefix = client.get(f"ipam/prefixes/{shadow_prefix_id}/").json()
+    shadow_net = ipaddress.ip_network(shadow_prefix["prefix"], strict=False)
+    real_net = ipaddress.ip_network(real_prefix["prefix"], strict=False)
+    offset = int(ipaddress.ip_address(real_host)) - int(real_net.network_address)
+    shadow_ip_str = str(ipaddress.ip_address(int(shadow_net.network_address) + offset))
+    shadow_address = f"{shadow_ip_str}/{shadow_net.prefixlen}"
+
+    def _find_existing_shadow():
+        # ?address=<cidr> is unreliable for finding a record that
+        # demonstrably exists (live-verified in onboarding_mcp's own
+        # deploy path) -- filter by ?parent=<shadow_prefix_id> (an exact
+        # id match) plus a plain host-string comparison instead.
+        existing = client.get("ipam/ip-addresses", params={"parent": shadow_prefix_id, "limit": 50})
+        if not existing.ok:
+            return None
+        for obj in existing.json().get("results", []):
+            if obj.get("host") == shadow_ip_str:
+                return obj["id"]
+        return None
+
+    shadow_id = _find_existing_shadow()
+    if not shadow_id:
+        global_ns_id = client.get_id_by_name("ipam/namespaces", "Global")
+        if not global_ns_id:
+            return "FAILED creating shadow IP: Nautobot 'Global' namespace not found"
+        r = client.post("ipam/ip-addresses", {
+            "address": shadow_address,
+            "namespace": {"id": global_ns_id},
+            "status": {"id": active_status_id},
+            "type": "host",
+        })
+        if r.status_code == 201:
+            shadow_id = r.json()["id"]
+        elif r.status_code == 400 and "already exists" in r.text:
+            shadow_id = _find_existing_shadow()
+            if not shadow_id:
+                return f"FAILED creating shadow IP (lost race, re-fetch found nothing): {r.status_code}: {r.text[:120]}"
+        else:
+            return f"FAILED creating shadow IP: {r.status_code}: {r.text[:120]}"
+
+    client.patch(f"ipam/ip-addresses/{shadow_id}/", {"custom_fields": {"real_ip": real_host}})
+    client.patch(f"ipam/ip-addresses/{real_ip_id}/", {"custom_fields": {"mapped_shadow_ip": shadow_id}})
+
+    intf_lookup = client.get("dcim/interfaces", params={"device_id": device_id, "name": "mgmt0", "limit": 5})
+    if not (intf_lookup.ok and intf_lookup.json().get("count", 0) > 0):
+        return f"FAILED linking shadow IP: mgmt0 interface not found on device {device_id}"
+    intf_id = intf_lookup.json()["results"][0]["id"]
+    link = client.post("ipam/ip-address-to-interface", {
+        "ip_address": {"id": shadow_id},
+        "interface": {"id": intf_id},
+    })
+    if not link.ok and link.status_code != 400:  # 400 == already linked, harmless
+        return f"FAILED linking shadow IP to interface: {link.status_code}: {link.text[:120]}"
+
+    r2 = api_patch('dcim/devices', device_id, {"primary_ip4": {"id": shadow_id}})
+    return 'set' if r2.ok else f"FAILED setting primary to shadow IP: {r2.status_code}: {r2.text[:80]}"
+
+
 # ── Controller ────────────────────────────────────────────────────────────────
 
 # Maps managed_by value → External Integration prefix
@@ -810,6 +904,16 @@ def process_csv(rows, dry_run):
             ip_link = set_primary_ip(dev_id, ip_id, dry_run)
             if 'FAILED' in str(ip_link):
                 print(f"         ! primary IP: {ip_link}")
+            elif pfx_id:
+                # LIVE-VERIFIED bug fix: without this, CatalogShadowIP's
+                # Job Hook reliably loses its own device-lookup race
+                # against this same set_primary_ip() call above -- see
+                # link_shadow_ip_sync()'s own docstring. No-ops cleanly
+                # for sites with no shadow prefix configured.
+                shadow_host = row['ip'].strip().split('/')[0]
+                shadow_link = link_shadow_ip_sync(dev_id, ip_id, pfx_id, shadow_host, active_id, dry_run)
+                if 'FAILED' in str(shadow_link):
+                    print(f"         ! shadow IP: {shadow_link}")
             # The row that actually carries the stack's management IP is
             # the provisioning-time default for VirtualChassis.master --
             # real Commander election happens on the hardware itself, so

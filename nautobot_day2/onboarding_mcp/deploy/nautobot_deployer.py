@@ -6,31 +6,24 @@ chatops/worker.py already does (dynamically-loaded module, module-level
 _C cache) rather than re-deriving manufacturer/device-type/role lookups.
 
 LIVE-VERIFIED, architecture doc §9's original design reversed: this file
-used to deliberately never set device.primary_ip4 (relying entirely on
-CatalogShadowIP's "create" job hook to find the device via
-real_ip.interfaces/assigned_object/a primary_ip4-already-set fallback,
-to avoid two code paths racing to set the same field). Live testing via
-onboarding-mcp's deploy_site() found this hook fires as a Celery task
-queued off the IPAddress "create" signal, which reliably raced ahead of
-this module's own follow-up ip-address-to-interface REST call --
-confirmed by a real device whose shadow IP custom field got computed and
-stored correctly (proving the hook ran and completed with no
-interfaces/assigned_object/primary_ip4 match, i.e. `device` resolved to
-None) while device.primary_ip4 stayed permanently None. Static devices
-(this module's entire purpose) never get a second chance at this: unlike
-controller-discovered APs, ReconcileDeviceIPs' DHCP-lease-drift check
-doesn't apply to them (no MAC-keyed DHCP lease to match against), so a
-lost race here is not self-healing.
-Now calls nautobot_onboard_v2.set_primary_ip() -- all 3 of its steps,
-same call the CSV wizard's onboard_devices() already makes -- so
-device.primary_ip4 is set to the real IP synchronously within this same
-deploy_device() call, giving CatalogShadowIP's "create"-path
-Device.objects.filter(primary_ip4=real_ip) fallback a real row to find
-regardless of how the interfaces-link race resolves. The hook still
-immediately supersedes it with the shadow IP once it runs (exactly the
-sequence already live-verified working end-to-end through the web
-wizard) -- this isn't "two code paths racing", it's the same
-briefly-real-then-shadow sequence the wizard always relied on.
+used to deliberately never set device.primary_ip4, relying entirely on
+CatalogShadowIP's Job Hook to find the device itself and link the shadow
+IP -- found live not to work (the hook's device lookup reliably loses
+its own race against this module's follow-up REST calls, since it fires
+the instant the real IPAddress is created, before any of them even
+start). Fixed in two parts, both now shared with the CSV wizard's own
+device loop (nautobot_onboard_v2.process_csv()), which had the identical
+bug and never got the equivalent fix until it was found live on a real
+customer tenant deployed through that path:
+1. nautobot_onboard_v2.set_primary_ip() sets device.primary_ip4 to the
+   real IP synchronously, same call the CSV wizard makes.
+2. nautobot_onboard_v2.link_shadow_ip_sync() -- called right after --
+   does the hook's own shadow-IP-computation-and-linking job over REST,
+   synchronously, idempotently with whatever the hook's own (separately
+   still-running) attempt does. See that function's own docstring for
+   the full history of why a synchronous re-implementation was needed
+   at all, and the race-within-the-race it took two more live-found bugs
+   to fully close.
 
 GAP FLAGGED, NOT SILENTLY PAPERED OVER: architecture doc §4/§6's
 add_static_device schema collects no hardware device model (unlike the
@@ -90,124 +83,7 @@ def _resolve_platform_id(vendor, dtype):
     return client.get_id_by_name("dcim/platforms", label)
 
 
-def _link_shadow_ip_sync(device_id, real_ip_id, real_host, real_prefix_cidr, shadow_prefix_id, active_status_id):
-    """
-    REST-only mirror of CatalogShadowIP's core logic (shadow_ip/jobs/
-    catalog_shadow_ip.py), called synchronously right after
-    set_primary_ip() for a device this module itself just created.
-
-    LIVE-VERIFIED this closes a race the reordering in deploy_device()
-    alone did not: the Job Hook fires the instant get_or_create_ip()'s
-    POST returns (queued off the IPAddress "create" signal), which is
-    BEFORE set_primary_ip()'s own three follow-up REST calls even start
-    -- confirmed live by a test device whose shadow IP got computed and
-    its mapped_shadow_ip custom field got set correctly (proving the hook
-    ran to completion) while device.primary_ip4 stayed on the real IP
-    (proving the hook's device lookup found nothing, since neither the
-    interface link nor primary_ip4 existed yet at that point no matter
-    which order this module's own calls run in afterward). This tool
-    (onboarding_mcp) only has REST access, not the Django ORM the hook
-    itself uses, so this reimplements the same offset-preserving math
-    (shadow_ip/shadow_math.py's compute_shadow_ip, inlined here since it
-    needs only ipaddress, no ORM) and the same get-or-create-shadow-IP
-    steps over REST, then sets primary_ip4 directly -- entirely
-    bypassing the hook's racy device lookup for this path. Idempotent
-    with the hook's own (separately still-running) attempt: whichever
-    writes first wins, the other's writes are harmless repeats of the
-    same values.
-
-    LIVE-VERIFIED a further wrinkle in that idempotency claim, on the
-    very next fresh device tested after this function was first added:
-    "whichever writes first wins" assumed the loser's own pre-create GET
-    lookup would simply find what the winner already committed -- but
-    when this function's own GET and POST race directly against the
-    hook's separate get_or_create() (both attempting to create the exact
-    same shadow IPAddress row within the same narrow window), the loser
-    can hit its POST *after* its own GET already ran clean (found
-    nothing) but *after* the hook's create has since committed --
-    yielding a real 400 IntegrityError-backed conflict ("IP address with
-    this Parent and Host already exists"), not a duplicate creation.
-    Handled the same way any other race-loser should be: on that specific
-    409-shaped 400, re-fetch and use what the winner (the hook) created,
-    instead of treating it as a hard failure.
-    """
-    shadow_prefix = client.get(f"ipam/prefixes/{shadow_prefix_id}/").json()
-    shadow_net = ipaddress.ip_network(shadow_prefix["prefix"], strict=False)
-    real_net = ipaddress.ip_network(real_prefix_cidr, strict=False)
-    offset = int(ipaddress.ip_address(real_host)) - int(real_net.network_address)
-    shadow_ip_str = str(ipaddress.ip_address(int(shadow_net.network_address) + offset))
-    shadow_address = f"{shadow_ip_str}/{shadow_net.prefixlen}"
-
-    global_ns_id = client.get_id_by_name("ipam/namespaces", "Global")
-    if not global_ns_id:
-        raise DeployError("Nautobot 'Global' namespace not found")
-
-    def _find_existing_shadow():
-        # LIVE-VERIFIED: filtering ipam/ip-addresses by ?address=<cidr> is
-        # unreliable for finding a record that demonstrably exists --
-        # confirmed live when this lookup found nothing immediately after
-        # this function's own POST got a 400 uniqueness conflict against
-        # that exact address (proving the row was there). Filtering by
-        # ?parent=<shadow_prefix_id> (an exact id match) plus a plain
-        # ?host= comparison (the bare IP, independent of whatever mask
-        # the row happens to be stored with) is the same pattern that
-        # reliably found records during this session's live debugging.
-        existing = client.get("ipam/ip-addresses", params={"parent": shadow_prefix_id, "limit": 50})
-        if not existing.ok:
-            return None
-        for obj in existing.json().get("results", []):
-            if obj.get("host") == shadow_ip_str:
-                return obj["id"]
-        return None
-
-    shadow_id = _find_existing_shadow()
-    if not shadow_id:
-        r = client.post("ipam/ip-addresses", {
-            "address": shadow_address,
-            "namespace": {"id": global_ns_id},
-            "status": {"id": active_status_id},
-            "type": "host",
-        })
-        if r.status_code == 201:
-            shadow_id = r.json()["id"]
-        elif r.status_code == 400 and "already exists" in r.text:
-            shadow_id = _find_existing_shadow()
-            if not shadow_id:
-                raise DeployError(
-                    f"FAILED creating shadow IP (lost race to the Job Hook, "
-                    f"but re-fetch still found nothing): {r.status_code}: {r.text[:120]}"
-                )
-        else:
-            raise DeployError(f"FAILED creating shadow IP: {r.status_code}: {r.text[:120]}")
-
-    client.patch(f"ipam/ip-addresses/{shadow_id}/", {"custom_fields": {"real_ip": real_host}})
-    client.patch(f"ipam/ip-addresses/{real_ip_id}/", {"custom_fields": {"mapped_shadow_ip": shadow_id}})
-
-    # LIVE-VERIFIED: Nautobot rejects PATCH primary_ip4 with 400
-    # {"primary_ip4": ["The specified IP address (...) is not assigned
-    # to this device."]} unless that IP is already linked to one of the
-    # device's interfaces via ip-address-to-interface -- the same rule
-    # set_primary_ip() already respects for the real IP (its steps 1-2
-    # before the step-3 PATCH). The shadow IP needs the identical
-    # interface link before this function's own primary_ip4 PATCH below.
-    intf_lookup = client.get("dcim/interfaces", params={"device_id": device_id, "name": "mgmt0", "limit": 5})
-    if intf_lookup.ok and intf_lookup.json().get("count", 0) > 0:
-        intf_id = intf_lookup.json()["results"][0]["id"]
-        link = client.post("ipam/ip-address-to-interface", {
-            "ip_address": {"id": shadow_id},
-            "interface": {"id": intf_id},
-        })
-        if not link.ok and link.status_code != 400:  # 400 == already linked, harmless
-            raise DeployError(f"FAILED linking shadow IP to interface: {link.status_code}: {link.text[:120]}")
-    else:
-        raise DeployError(f"mgmt0 interface not found on device {device_id} -- set_primary_ip() should have created it")
-
-    r2 = client.patch(f"dcim/devices/{device_id}/", {"primary_ip4": {"id": shadow_id}})
-    if not r2.ok:
-        raise DeployError(f"FAILED setting device primary_ip4 to shadow IP: {r2.status_code}: {r2.text[:120]}")
-
-
-def deploy_device(device, tenant_id, site_id, namespace_id, real_prefix_id, real_prefix_cidr, shadow_prefix_id=None):
+def deploy_device(device, tenant_id, site_id, namespace_id, real_prefix_id, real_prefix_cidr):
     """
     Create one queued device (static or controller-managed AP) in
     Nautobot. Returns {hostname, device_id, ip_created, status}.
@@ -275,8 +151,21 @@ def deploy_device(device, tenant_id, site_id, namespace_id, real_prefix_id, real
         primary_msg = nautobot_onboard_v2.set_primary_ip(dev_id, ip_id, False)
         if "FAILED" in str(primary_msg):
             raise DeployError(f"primary_ip: {primary_msg}")
-        if shadow_prefix_id:
-            _link_shadow_ip_sync(dev_id, ip_id, mgmt_ip, real_prefix_cidr, shadow_prefix_id, active_status_id)
+        # LIVE-VERIFIED bug fix, shared with the CSV wizard's own device
+        # loop (nautobot_onboard_v2.process_csv()), which had the
+        # identical race and never had this fix applied until it was
+        # found live on a real customer tenant deployed through that
+        # path: CatalogShadowIP's Job Hook fires the instant
+        # get_or_create_ip()'s POST returns, before set_primary_ip()'s
+        # own three follow-up REST calls even start, so its own device
+        # lookup finds nothing no matter what order this module's calls
+        # run in. link_shadow_ip_sync() closes that by doing the same
+        # linking synchronously and idempotently with the hook's own
+        # (separately still-running) attempt. No-ops cleanly for a site
+        # with no shadow prefix configured.
+        shadow_msg = nautobot_onboard_v2.link_shadow_ip_sync(dev_id, ip_id, pfx_id, mgmt_ip, active_status_id, False)
+        if "FAILED" in str(shadow_msg):
+            raise DeployError(f"shadow_ip: {shadow_msg}")
         ip_created = True
     # else: controller-managed AP with no IP yet at deploy time -- Device
     # created, IPAddress intentionally skipped; ReconcileDeviceIPs picks
