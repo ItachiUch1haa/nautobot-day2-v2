@@ -45,6 +45,21 @@ of a now-invalid one from Redis-cached fields) is the caller's
 responsibility -- see tools_schema.py's set_ap_controller/
 scan_ap_controller, which read this instance's (possibly-updated)
 `.refresh_token` attribute back out after each call.
+
+FOLLOW-UP FIX, same session: the rotation fix above was correct but
+still re-exchanged (and re-rotated) on every single MCP tool call, since
+tools_schema.py rebuilds a fresh ArubaCentralClient instance each time
+-- this instance's own self._access_token cache never survived past one
+call. Added _ARUBA_TOKEN_CACHE, a module-level (per-process) cache keyed
+by tenant_slug, exactly mirroring sync_network_data.py's own
+_ARUBA_TOKEN_CACHE -- valid because onboarding-mcp's server.py runs as
+one long-lived process for the container's lifetime, the same way the
+sync engine's worker process does, so a module-level cache here persists
+across separate MCP tool calls the same way it does across separate
+sync dispatches there. Now a scan_ap_controller() moments after
+set_ap_controller() reuses the still-valid access_token with zero calls
+to Aruba's token endpoint, instead of unconditionally re-exchanging (and
+re-rotating the refresh_token) every time.
 """
 import time
 
@@ -52,6 +67,21 @@ import requests
 
 from controllers.base import APControllerClient, ControllerAuthError
 from openbao_client import update_rotated_credential
+
+# In-process cache: tenant_slug -> {"access_token": ..., "expires_at": <unix ts>}.
+# Same pattern and same rationale as onboarding/sync_network_data.py's
+# _ARUBA_TOKEN_CACHE: onboarding-mcp's server.py runs as one long-lived
+# process for the life of the container (tools_schema.py's
+# set_ap_controller/scan_ap_controller/deploy_site all run inside it,
+# across many separate MCP tool calls, not one process per call), so a
+# module-level cache here persists exactly as long as sync_network_data.py's
+# does in the worker process -- it just wasn't present here originally,
+# so every MCP call re-exchanged (and re-rotated) the refresh_token even
+# when the access_token from the previous call, seconds earlier, was
+# still perfectly valid. Per-process only, same caveat as the reference
+# cache: onboarding-mcp, the wizard, and the sync engine each run as
+# separate processes/containers and do not share this.
+_ARUBA_TOKEN_CACHE = {}
 
 
 class ArubaCentralClient(APControllerClient):
@@ -79,8 +109,21 @@ class ArubaCentralClient(APControllerClient):
         return ["base_url", "client_id", "client_secret", "refresh_token"]
 
     def _get_token(self):
+        # Per-instance check first (covers a single call reusing this
+        # same object more than once), then the process-level cache
+        # (covers the real case: a brand-new instance built on the next
+        # MCP tool call, same tenant, access_token from moments ago
+        # still valid -- see _ARUBA_TOKEN_CACHE's own comment).
         if self._access_token and self._expires_at > time.time() + 60:
             return self._access_token
+
+        cache_key = self.tenant_slug or f"_no_tenant_{id(self)}"
+        cached = _ARUBA_TOKEN_CACHE.get(cache_key)
+        if cached and cached["expires_at"] > time.time() + 60:
+            self._access_token = cached["access_token"]
+            self._expires_at = cached["expires_at"]
+            return self._access_token
+
         try:
             resp = requests.post(
                 f"{self.base_url}/oauth2/token",
@@ -99,6 +142,7 @@ class ArubaCentralClient(APControllerClient):
         data = resp.json()
         self._access_token = data.get("access_token")
         self._expires_at = time.time() + data.get("expires_in", 1800)
+        _ARUBA_TOKEN_CACHE[cache_key] = {"access_token": self._access_token, "expires_at": self._expires_at}
 
         new_refresh = data.get("refresh_token")
         if new_refresh and new_refresh != self.refresh_token:
