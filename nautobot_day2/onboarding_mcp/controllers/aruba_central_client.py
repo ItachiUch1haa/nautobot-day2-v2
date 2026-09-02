@@ -14,22 +14,62 @@ the real, validated pattern (ARUBA_CLIENT_ID / ARUBA_CLIENT_SECRET /
 ARUBA_REFRESH_TOKEN / ARUBA_CENTRAL_BASE_URL naming, matching
 vendor_matrix.py) so discovered/onboarded devices authenticate the exact
 same way the existing sync engine already does for this vendor.
+
+LIVE-FOUND BUG, this adapter never carried over a load-bearing part of
+that "already-validated" reference implementation: Aruba Central's
+refresh-token grant *rotates* the refresh token on every single exchange
+-- the response's own `refresh_token` field is a new value, and the one
+just used becomes invalid immediately (sync_network_data.py's own
+_aruba_central_get_token() docstring already calls this out: "each
+exchange also risks rotating the refresh_token again"). That reference
+implementation handles it by detecting the change and persisting the new
+value (OpenBao + env file + os.environ) every time. This adapter
+originally just discarded the response's refresh_token entirely, and
+tools_schema.py rebuilds a brand-new ArubaCentralClient from scratch on
+every set_ap_controller/scan_ap_controller call (no persistent in-process
+instance across MCP tool calls), so the very first scan_ap_controller()
+after a successful set_ap_controller() would already be handed a refresh
+token Aruba had already invalidated during set_ap_controller()'s own
+test_connection() exchange -- not just an issue after some TTL, but
+reliably on the second call, every time. Reported symptom matched
+exactly: "aruba central refresh token flow is not working for api
+calls."
+
+Fixed by mirroring the reference implementation: detect the rotation in
+_get_token() and persist it to OpenBao immediately via
+update_rotated_credential() (best-effort -- an OpenBao write failure
+here shouldn't block the API call that already has a valid access
+token). Session-state-level persistence (so the *next* MCP tool call in
+this same session rebuilds the controller with the fresh token instead
+of a now-invalid one from Redis-cached fields) is the caller's
+responsibility -- see tools_schema.py's set_ap_controller/
+scan_ap_controller, which read this instance's (possibly-updated)
+`.refresh_token` attribute back out after each call.
 """
 import time
 
 import requests
 
 from controllers.base import APControllerClient, ControllerAuthError
+from openbao_client import update_rotated_credential
 
 
 class ArubaCentralClient(APControllerClient):
     """AP discovery against the Aruba Central API."""
 
-    def __init__(self, base_url, client_id, client_secret, refresh_token):
+    def __init__(self, base_url, client_id, client_secret, refresh_token, tenant_slug=None):
         self.base_url = base_url.rstrip("/")
         self.client_id = client_id
         self.client_secret = client_secret
         self.refresh_token = refresh_token
+        # Not one of required_credential_fields() -- callers set this
+        # post-construction (tools_schema.py does, once the session's
+        # tenant is known) so the rotation below can be persisted to the
+        # right OpenBao path. None is a valid, if degraded, state: the
+        # rotated token still updates self.refresh_token in memory for
+        # the caller to read back, it just can't be written to OpenBao
+        # without knowing which tenant's secret to update.
+        self.tenant_slug = tenant_slug
         self.session = requests.Session()
         self._access_token = None
         self._expires_at = 0
@@ -59,6 +99,24 @@ class ArubaCentralClient(APControllerClient):
         data = resp.json()
         self._access_token = data.get("access_token")
         self._expires_at = time.time() + data.get("expires_in", 1800)
+
+        new_refresh = data.get("refresh_token")
+        if new_refresh and new_refresh != self.refresh_token:
+            self.refresh_token = new_refresh
+            if self.tenant_slug:
+                try:
+                    update_rotated_credential(
+                        self.tenant_slug, "aruba_central-controller", {"refresh_token": new_refresh}
+                    )
+                except Exception:
+                    # Non-fatal, matching sync_network_data.py's own
+                    # _aruba_central_get_token() -- the access_token we
+                    # just got is still valid and usable for this call;
+                    # a failed OpenBao write here shouldn't block it.
+                    # Whoever reads self.refresh_token back out after
+                    # this call still gets the correct, current value.
+                    pass
+
         return self._access_token
 
     def test_connection(self):

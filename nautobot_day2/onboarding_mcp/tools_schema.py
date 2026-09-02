@@ -427,16 +427,35 @@ def set_ap_controller(session_id, controller_type, **fields):
     doc §4). Rejects Cisco DNAC/WLC-SSH explicitly (architecture doc §6,
     master doc §9 item 7 — intentionally unimplemented) rather than
     silently falling through to another adapter.
+
+    LIVE-FOUND BUG, fixed here: Aruba Central rotates its refresh_token
+    on every single token exchange (see aruba_central_client.py's own
+    docstring for the full history) -- test_connection()'s own exchange
+    below already invalidates the refresh_token this call was given,
+    the moment it succeeds. Set tenant_slug on the controller before
+    calling test_connection() so ArubaCentralClient can persist the
+    rotated token to OpenBao immediately, then read the (possibly now
+    different) refresh_token back out and store *that* in
+    pending_controller -- not the original caller-supplied value --
+    so scan_ap_controller() and deploy_site() both pick up the token
+    that's actually still valid.
     """
     if str(fields.get("platform", "")).lower() in ("cisco_dnac", "cisco_wlc", "dnac", "wlc-ssh"):
         raise ToolError("Cisco AP controller management (DNAC/WLC-SSH) is not yet implemented — see master doc §9 item 7")
 
     session = _session(session_id)
+    data = session.get_status()
+    tenant_slug = (data.get("tenant") or {}).get("namespace_name") or (data.get("tenant") or {}).get("name")
+
     controller = _build_controller(controller_type, fields)
+    if controller_type == "aruba_central":
+        controller.tenant_slug = tenant_slug
     try:
         controller.test_connection()
     except (ControllerAuthError, NotImplementedError) as e:
         raise ToolError(f"Controller connection failed: {e}")
+    if controller_type == "aruba_central":
+        fields = {**fields, "refresh_token": controller.refresh_token}
 
     pending_controller = {"controller_type": controller_type, "fields": fields}
     data = session.transition("set_ap_controller", lambda d: {**d, "pending_controller": pending_controller})
@@ -444,18 +463,38 @@ def set_ap_controller(session_id, controller_type, **fields):
 
 
 def scan_ap_controller(session_id, filters=None):
-    """Re-runnable (§4): does not clear anything already select_discovered_aps'd in this session."""
+    """
+    Re-runnable (§4): does not clear anything already select_discovered_aps'd in this session.
+
+    Same rotation handling as set_ap_controller() (see that function's
+    and aruba_central_client.py's docstrings) -- this rebuilds a brand
+    new ArubaCentralClient from whatever refresh_token is currently in
+    session state, so if a previous call's rotation wasn't written back
+    here, every call after the first would be handed an already-invalid
+    token. Persist any rotation from *this* call the same way.
+    """
     session = _session(session_id)
     data = session.get_status()
     pc = data.get("pending_controller")
     if not pc:
         raise ToolError("No controller set on this session — call set_ap_controller first")
 
+    tenant_slug = (data.get("tenant") or {}).get("namespace_name") or (data.get("tenant") or {}).get("name")
     controller = _build_controller(pc["controller_type"], pc["fields"])
+    if pc["controller_type"] == "aruba_central":
+        controller.tenant_slug = tenant_slug
     raw_candidates = controller.discover_aps(filters or {})
     tagged = tag_candidates(raw_candidates)
 
-    data = session.transition("scan_ap_controller", lambda d: {**d, "last_scan_candidates": tagged})
+    def _apply(d):
+        updated = {**d, "last_scan_candidates": tagged}
+        if pc["controller_type"] == "aruba_central" and controller.refresh_token != pc["fields"].get("refresh_token"):
+            updated["pending_controller"] = {
+                **pc, "fields": {**pc["fields"], "refresh_token": controller.refresh_token}
+            }
+        return updated
+
+    data = session.transition("scan_ap_controller", _apply)
     return {"candidates": [{k: v for k, v in c.items() if k != "raw"} for c in tagged], "state": data["state"]}
 
 
