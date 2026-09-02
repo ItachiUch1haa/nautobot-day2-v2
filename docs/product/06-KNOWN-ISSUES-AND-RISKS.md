@@ -46,12 +46,24 @@ worth knowing about for any future code touching this same surface area
 - A REST API response's nested `namespace` reference on a `Prefix` has
   no `name` field, only `{id, url, object_type}` — any code comparing by
   name instead of id silently gets `None`.
-- A genuine race condition between `onboarding-mcp`'s own synchronous
-  shadow-IP-linking code and the `CatalogShadowIP` Job Hook's
-  independent, asynchronous attempt at the same thing — closed by making
-  both sides idempotent against each other rather than trying to force
-  strict ordering (which isn't reliably controllable across an async
-  Celery-dispatched Job Hook and a synchronous REST caller).
+- A genuine race condition between a device's own onboarding code and
+  the `CatalogShadowIP` Job Hook's independent, asynchronous attempt to
+  link the same device's shadow IP — the hook fires the instant the real
+  IP is created, before any of the onboarding code's own follow-up REST
+  calls (interface link, `primary_ip4` patch) even start, so its device
+  lookup finds nothing regardless of call order. **Found and fixed
+  twice**: first in `onboarding-mcp`'s deploy path, then — live, on a
+  real customer tenant deployed through the **web wizard**, not a
+  synthetic test — found to affect the wizard's own device loop
+  identically (an earlier single-device wizard test had simply happened
+  not to lose the race; a 4-device batch lost it uniformly, every time).
+  Both surfaces now share one fixed implementation
+  (`nautobot_onboard_v2.link_shadow_ip_sync()`) instead of two separate
+  copies that could drift. Closed by making the onboarding code
+  idempotent against the hook's own still-running attempt rather than
+  trying to force strict ordering, which isn't reliably controllable
+  across an async Celery-dispatched Job Hook and a synchronous REST
+  caller.
 
 None of these are open risks today — they're listed so the pattern
 ("this Nautobot version's actual API surface differs from what a design

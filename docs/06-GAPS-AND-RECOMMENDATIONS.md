@@ -461,3 +461,46 @@ credentials:**
    (`docs/06-GAPS-AND-RECOMMENDATIONS.md` §9 already flags backup/DR as
    generally out of scope of this review) as the *only* real safety net
    for a lost-root-token scenario on this build — not `generate-root`.
+
+## 19. The CSV wizard's device onboarding had the identical CatalogShadowIP race onboarding-mcp did — found live on a real customer tenant, now fixed for both
+
+**LIVE-VERIFIED** on a real customer tenant ("Decathon Sports PVT LTD",
+4 devices, deployed through the web wizard) rather than a synthetic test:
+every device's shadow IP was correctly computed and its
+`mapped_shadow_ip` custom field correctly populated (proving
+`CatalogShadowIP`'s Job Hook ran to completion each time), while
+`device.primary_ip4` stayed on the real IP for all four devices
+uniformly — the exact same race already found and fixed for
+`onboarding_mcp`'s deploy path (see §16/§17 and the "recently found and
+fixed" list there): the hook fires the instant the real `IPAddress` is
+created, before `nautobot_onboard_v2.set_primary_ip()`'s own three
+follow-up REST calls (mgmt interface create, IP-to-interface link,
+`primary_ip4` PATCH) even start, so its own device lookup finds nothing
+regardless of call order.
+
+The fix applied to `onboarding_mcp/deploy/nautobot_deployer.py`
+(synchronous shadow-IP linking, idempotent with the hook's own
+still-running attempt) was never applied to the wizard's own
+`nautobot_onboard_v2.py::process_csv()` device loop — it's a completely
+separate code path that happens to hit the identical bug, and nothing
+in the earlier fix cycle touched it. **The earlier "wizard chain
+verified working" note (§15/§17 history) reflected a single test device
+that happened not to lose the race, not a structural difference between
+the two onboarding surfaces** — with 4 devices deployed in a batch, the
+race resolved the same way every single time.
+
+Fixed by extracting the shadow-IP-linking logic into a single shared
+function, `nautobot_onboard_v2.link_shadow_ip_sync()`, called from both
+`process_csv()` (right after `set_primary_ip()`) and
+`onboarding_mcp/deploy/nautobot_deployer.py::deploy_device()` — one
+implementation instead of two copies that can drift. Self-contained: it
+looks up the real prefix's own `nat_shadow_prefix` custom field rather
+than requiring the caller to track the shadow prefix id separately, and
+no-ops cleanly for a site with no shadow prefix configured (since
+`process_csv()` runs for every site, shadow-IP-enabled or not).
+
+Existing already-deployed devices on any tenant onboarded before this
+fix need a one-time backfill — calling `link_shadow_ip_sync()` directly
+for each affected device (idempotent, safe to run against a device
+that's already correctly linked) is sufficient; no need to re-run the
+full onboarding pipeline.
