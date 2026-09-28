@@ -673,6 +673,228 @@ def api_validate_credentials():
     return jsonify({'slug': slug, 'results': results})
 
 
+# ── Controller polling (Step 2 extension) ──────────────────────────────────────
+#
+# Lets Step 2 populate AP rows by polling a cloud controller instead of
+# entering them one at a time with a hand-typed IP -- useful specifically
+# because controller-managed APs get a dynamic IP from the controller's own
+# DHCP pool, which makes a known-IP-per-row CSV/table impractical to keep
+# accurate. Deliberately reuses, rather than re-implements:
+#   - vendor_test_app.py's already-live-verified test_aruba_central() for
+#     the "Test Connection" button (same OAuth2 refresh-token exchange
+#     this whole platform already relies on for Aruba Central).
+#   - openbao_client.py's fetch_openbao_secret() for "reuse this tenant's
+#     existing credentials" -- the SAME helper /api/test-credentials
+#     already uses, reading the SAME secrets_group_prefix
+#     ('aruba-central-api') the wizard/sync engine have always used, not
+#     onboarding_mcp's separate, unrelated 'aruba_central-controller'
+#     OpenBao path.
+#   - /api/save-credentials (already defined above) for persisting a
+#     first-time entry so the *next* site for this tenant lands in the
+#     "reuse existing" path automatically -- no new write path needed.
+#
+# AP-only for now, Aruba Central only -- the only controller this codebase
+# has actually live-tested AP discovery against this cycle. Mist's own
+# discover_aps() equivalent (onboarding_mcp/controllers/mist_client.py) is
+# explicitly marked "PENDING LIVE VERIFICATION" in its own docstring and a
+# per-site Mist site_id (not a free-text name) would be needed -- adding
+# it here before it's actually been run against a real Mist org would
+# repeat the exact mistake this codebase's own history warns against
+# (trust the live behavior, not the spec). Switch discovery (any vendor)
+# is tracked separately as a v2 follow-up.
+CONTROLLER_POLL_TYPES = {
+    'aruba-central': {
+        'label': 'Aruba Central',
+        'secrets_group_prefix': 'aruba-central-api',
+        'fields': [
+            {'name': 'ARUBA_CENTRAL_BASE_URL', 'label': 'Base URL', 'sensitive': False},
+            {'name': 'ARUBA_CLIENT_ID',        'label': 'Client ID', 'sensitive': False},
+            {'name': 'ARUBA_CLIENT_SECRET',    'label': 'Client Secret', 'sensitive': True},
+            {'name': 'ARUBA_REFRESH_TOKEN',    'label': 'Refresh Token', 'sensitive': True},
+        ],
+        'default_vendor_slug': 'aruba',
+    },
+}
+
+
+def _resolve_controller_fields(slug, controller_type, use_existing, overrides):
+    """
+    Resolve {base_var_name: value} for a controller-poll request -- either
+    read back from OpenBao (an existing tenant's already-saved credentials,
+    for a new site) or taken from what the caller just typed (a brand-new
+    tenant's first site). Returns (values, missing_field_names, cfg).
+    """
+    from openbao_client import fetch_openbao_secret
+
+    cfg = CONTROLLER_POLL_TYPES.get(controller_type)
+    if not cfg:
+        raise ValueError(f"Unsupported controller_type '{controller_type}'")
+
+    suffix = slug.upper().replace('-', '_')
+    values = {}
+    if use_existing:
+        data = fetch_openbao_secret(slug, cfg['secrets_group_prefix'])
+        for f in cfg['fields']:
+            values[f['name']] = data.get(f"{f['name']}_{suffix}", '')
+    else:
+        overrides = overrides or {}
+        for f in cfg['fields']:
+            values[f['name']] = overrides.get(f['name'], '')
+
+    missing = [f['name'] for f in cfg['fields'] if not values.get(f['name'])]
+    return values, missing, cfg
+
+
+@app.route('/api/controller/existing', methods=['GET'])
+def api_controller_existing():
+    """
+    Whether this tenant already has working credentials stored for a given
+    controller_type -- lets Step 2 offer "reuse these" instead of asking
+    the engineer to re-enter them for every new site of an existing
+    tenant. Never returns a sensitive field's actual value, only whether
+    everything required is present and a non-sensitive preview (base URL).
+    """
+    from openbao_client import fetch_openbao_secret
+
+    slug = request.args.get('tenant', '')
+    controller_type = request.args.get('controller_type', '')
+    cfg = CONTROLLER_POLL_TYPES.get(controller_type)
+    if not slug or not cfg:
+        return jsonify({'error': "'tenant' and a supported 'controller_type' are required"}), 400
+
+    try:
+        data = fetch_openbao_secret(slug, cfg['secrets_group_prefix'])
+    except Exception:
+        return jsonify({'has_credentials': False})
+
+    suffix = slug.upper().replace('-', '_')
+    all_present = all(data.get(f"{f['name']}_{suffix}") for f in cfg['fields'])
+    preview_field = next((f for f in cfg['fields'] if not f['sensitive']), None)
+    preview = data.get(f"{preview_field['name']}_{suffix}", '') if (all_present and preview_field) else ''
+    return jsonify({'has_credentials': all_present, 'preview': preview})
+
+
+@app.route('/api/controller/test', methods=['POST'])
+def api_controller_test():
+    """
+    Test a cloud controller's credentials -- freshly entered (new tenant's
+    first site) or reused from this tenant's existing, already-saved ones
+    (a new site for an existing tenant). Reuses vendor_test_app.py's
+    already-live-verified test_aruba_central() rather than
+    re-implementing the OAuth exchange here.
+    """
+    from vendor_test_app import test_aruba_central
+
+    data = request.json or {}
+    slug = data.get('tenant', '')
+    controller_type = data.get('controller_type', '')
+    use_existing = bool(data.get('use_existing'))
+    overrides = data.get('fields') or {}
+
+    if not slug:
+        return jsonify({'error': "'tenant' is required"}), 400
+    try:
+        values, missing, cfg = _resolve_controller_fields(slug, controller_type, use_existing, overrides)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    if missing:
+        return jsonify({'error': f"Missing required field(s): {missing}"}), 400
+
+    if controller_type == 'aruba-central':
+        result = test_aruba_central(
+            client_id=values['ARUBA_CLIENT_ID'],
+            client_secret=values['ARUBA_CLIENT_SECRET'],
+            refresh_token=values['ARUBA_REFRESH_TOKEN'],
+            base_url=values['ARUBA_CENTRAL_BASE_URL'],
+        )
+    else:
+        return jsonify({'error': f"Unsupported controller_type '{controller_type}'"}), 400
+
+    return jsonify(result)
+
+
+@app.route('/api/controller/scan', methods=['POST'])
+def api_controller_scan():
+    """
+    Poll the controller for its FULL current AP inventory (not just the
+    5-item preview vendor_test_app.py's testers return), mapped to a
+    common candidate shape {name, model, mac, current_ip, site_label,
+    serial} for populating Step 2's device table. Optional free-text
+    site_filter matches the 'site' query param onboarding_mcp's own
+    ArubaCentralClient.discover_aps() already sends for the same vendor.
+    """
+    import requests as req_lib
+
+    data = request.json or {}
+    slug = data.get('tenant', '')
+    controller_type = data.get('controller_type', '')
+    use_existing = bool(data.get('use_existing'))
+    overrides = data.get('fields') or {}
+    site_filter = (data.get('site_filter') or '').strip()
+
+    if not slug:
+        return jsonify({'error': "'tenant' is required"}), 400
+    try:
+        values, missing, cfg = _resolve_controller_fields(slug, controller_type, use_existing, overrides)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    if missing:
+        return jsonify({'error': f"Missing required field(s): {missing}"}), 400
+
+    if controller_type != 'aruba-central':
+        return jsonify({'error': f"Unsupported controller_type '{controller_type}'"}), 400
+
+    base_url = values['ARUBA_CENTRAL_BASE_URL'].rstrip('/')
+    try:
+        token_resp = req_lib.post(
+            f"{base_url}/oauth2/token",
+            params={
+                'client_id':     values['ARUBA_CLIENT_ID'],
+                'client_secret': values['ARUBA_CLIENT_SECRET'],
+                'grant_type':    'refresh_token',
+                'refresh_token': values['ARUBA_REFRESH_TOKEN'],
+            },
+            timeout=15,
+        )
+    except Exception as e:
+        return jsonify({'error': f"Token exchange failed: {e}"}), 502
+    if not token_resp.ok:
+        return jsonify({'error': f"Token exchange failed: {token_resp.status_code}: {token_resp.text[:200]}"}), 502
+    access_token = token_resp.json().get('access_token', '')
+
+    params = {'limit': 1000}
+    if site_filter:
+        params['site'] = site_filter
+    try:
+        ap_resp = req_lib.get(
+            f"{base_url}/monitoring/v2/aps",
+            headers={'Authorization': f'Bearer {access_token}'},
+            params=params, timeout=20,
+        )
+    except Exception as e:
+        return jsonify({'error': f"AP list failed: {e}"}), 502
+    if not ap_resp.ok:
+        return jsonify({'error': f"AP list failed: {ap_resp.status_code}: {ap_resp.text[:200]}"}), 502
+
+    candidates = []
+    for ap in ap_resp.json().get('aps', []):
+        candidates.append({
+            'name':       ap.get('name') or ap.get('macaddr', 'unknown'),
+            'model':      ap.get('model', ''),
+            'mac':        ap.get('macaddr', ''),
+            'current_ip': ap.get('ip_address', '') or '',
+            'site_label': ap.get('site', ''),
+            'serial':     ap.get('serial', ''),
+        })
+
+    return jsonify({
+        'controller_type':     controller_type,
+        'default_vendor_slug': cfg['default_vendor_slug'],
+        'candidates':          candidates,
+        'count':               len(candidates),
+    })
+
+
 @app.route('/api/validate-row', methods=['POST'])
 def api_validate_row():
     """Validate a single device row in real time."""

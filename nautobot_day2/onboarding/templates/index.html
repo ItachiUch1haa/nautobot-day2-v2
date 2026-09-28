@@ -224,6 +224,7 @@ select:focus, input:focus { outline: none; border-color: #1B3A6B; }
     <div class="tabs">
       <div class="tab active" id="tab-interactive" onclick="switchTab('interactive')">Interactive Entry</div>
       <div class="tab" id="tab-csv" onclick="switchTab('csv')">CSV Upload</div>
+      <div class="tab" id="tab-controller" onclick="switchTab('controller')">Cloud Controller (APs)</div>
     </div>
 
     <div id="tabInteractive">
@@ -252,6 +253,47 @@ select:focus, input:focus { outline: none; border-color: #1B3A6B; }
         <input type="file" id="csvFile" accept=".csv"
                onchange="handleCsvUpload(event)" style="font-size:13px">
       </div>
+    </div>
+
+    <div id="tabController" style="display:none">
+      <div class="alert alert-info">
+        Poll Aruba Central for this site's current AP inventory instead of
+        entering rows manually -- useful since controller-managed APs get
+        a dynamic IP from the controller's own DHCP pool. Discovered APs
+        are added to the Interactive Entry list above; everything after
+        Step 2 (validate, credentials, test, deploy) works exactly the
+        same regardless of how a row got there.
+      </div>
+
+      <div id="ctrlExistingBox" style="display:none" class="alert alert-ok">
+        Existing Aruba Central credentials found for this tenant (<span id="ctrlExistingPreview"></span>).
+        <label style="display:block;margin-top:6px;font-weight:400">
+          <input type="checkbox" id="ctrlUseExisting" checked onchange="toggleControllerFields()">
+          Reuse them for this site
+        </label>
+      </div>
+
+      <div id="ctrlFieldsBox">
+        <div class="cred-field-row"><label>Base URL</label>
+          <input type="text" id="ctrl-base-url" placeholder="https://apigw-prod2.central.arubanetworks.com"></div>
+        <div class="cred-field-row"><label>Client ID</label>
+          <input type="text" id="ctrl-client-id"></div>
+        <div class="cred-field-row"><label>Client Secret</label>
+          <input type="password" id="ctrl-client-secret"></div>
+        <div class="cred-field-row"><label>Refresh Token</label>
+          <input type="password" id="ctrl-refresh-token"></div>
+      </div>
+
+      <div class="cred-field-row"><label>Site filter <span class="badge badge-muted">optional</span></label>
+        <input type="text" id="ctrl-site-filter" placeholder="exact site name as known in Aruba Central"></div>
+
+      <div class="actions" style="margin-top:12px">
+        <button class="btn btn-outline btn-sm" onclick="testController()">Test Connection</button>
+        <button class="btn btn-outline btn-sm" onclick="scanController()">Scan for APs</button>
+      </div>
+
+      <div id="ctrlTestResult"></div>
+      <div id="ctrlScanResult"></div>
     </div>
 
     <div class="actions" style="margin-top:16px">
@@ -512,8 +554,223 @@ function switchTab(tab) {
   state.activeTab = tab;
   document.getElementById("tabInteractive").style.display = (tab === "interactive") ? "" : "none";
   document.getElementById("tabCsv").style.display         = (tab === "csv") ? "" : "none";
+  document.getElementById("tabController").style.display  = (tab === "controller") ? "" : "none";
   document.getElementById("tab-interactive").className = "tab" + (tab === "interactive" ? " active" : "");
   document.getElementById("tab-csv").className         = "tab" + (tab === "csv" ? " active" : "");
+  document.getElementById("tab-controller").className  = "tab" + (tab === "controller" ? " active" : "");
+  if (tab === "controller") checkExistingControllerCreds();
+}
+
+// ── Cloud Controller polling (Step 2 extension, Aruba Central AP discovery) ──
+
+function tenantSuffix(slug) {
+  return slug.toUpperCase().replace(/-/g, "_");
+}
+
+function checkExistingControllerCreds() {
+  var slug = state.tenant ? state.tenant.slug : "";
+  if (!slug) return;
+  fetch("/api/controller/existing?tenant=" + encodeURIComponent(slug) + "&controller_type=aruba-central")
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var box = document.getElementById("ctrlExistingBox");
+      if (data.has_credentials) {
+        document.getElementById("ctrlExistingPreview").innerText = data.preview || "";
+        box.style.display = "";
+        document.getElementById("ctrlUseExisting").checked = true;
+      } else {
+        box.style.display = "none";
+      }
+      toggleControllerFields();
+    });
+}
+
+function toggleControllerFields() {
+  var box = document.getElementById("ctrlExistingBox");
+  var chk = document.getElementById("ctrlUseExisting");
+  var usingExisting = box.style.display !== "none" && chk && chk.checked;
+  document.getElementById("ctrlFieldsBox").style.display = usingExisting ? "none" : "";
+}
+
+function usingExistingControllerCreds() {
+  var box = document.getElementById("ctrlExistingBox");
+  var chk = document.getElementById("ctrlUseExisting");
+  return box.style.display !== "none" && chk && chk.checked;
+}
+
+function collectControllerFields() {
+  return {
+    ARUBA_CENTRAL_BASE_URL: document.getElementById("ctrl-base-url").value.trim(),
+    ARUBA_CLIENT_ID:        document.getElementById("ctrl-client-id").value.trim(),
+    ARUBA_CLIENT_SECRET:    document.getElementById("ctrl-client-secret").value.trim(),
+    ARUBA_REFRESH_TOKEN:    document.getElementById("ctrl-refresh-token").value.trim()
+  };
+}
+
+function testController() {
+  var slug = state.tenant ? state.tenant.slug : "";
+  if (!slug) { alert("No tenant selected"); return; }
+  var useExisting = usingExistingControllerCreds();
+  var resultDiv = document.getElementById("ctrlTestResult");
+  resultDiv.innerHTML = "<div class=\"alert alert-info\">Testing connection...</div>";
+
+  fetch("/api/controller/test", {
+    method:  "POST",
+    headers: {"Content-Type": "application/json"},
+    body:    JSON.stringify({
+      tenant: slug, controller_type: "aruba-central",
+      use_existing: useExisting, fields: useExisting ? {} : collectControllerFields()
+    })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.error) { resultDiv.innerHTML = "<div class=\"alert alert-error\">" + data.error + "</div>"; return; }
+    if (data.status === "ready") {
+      resultDiv.innerHTML = "<div class=\"alert alert-ok\">" + data.message + "</div>";
+      if (!useExisting) saveControllerCredentials(slug);
+    } else {
+      resultDiv.innerHTML = "<div class=\"alert alert-error\">" + (data.message || "Connection test failed") + "</div>";
+    }
+  })
+  .catch(function(err) {
+    resultDiv.innerHTML = "<div class=\"alert alert-error\">" + err + "</div>";
+  });
+}
+
+function saveControllerCredentials(slug) {
+  // Persists a first-time entry (new tenant's first site) so the NEXT
+  // site for this same tenant finds it via checkExistingControllerCreds()
+  // instead of asking again -- reuses the existing /api/save-credentials
+  // endpoint as-is, same var-name convention Step 4 already uses.
+  var fields = collectControllerFields();
+  var suffix = tenantSuffix(slug);
+  var credentials = {};
+  Object.keys(fields).forEach(function(k) { credentials[k + "_" + suffix] = fields[k]; });
+
+  fetch("/api/save-credentials", {
+    method:  "POST",
+    headers: {"Content-Type": "application/json"},
+    body:    JSON.stringify({ slug: slug, credentials: credentials })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.error) {
+      document.getElementById("ctrlTestResult").innerHTML +=
+        "<div class=\"alert alert-error\">Connection OK, but saving credentials for reuse failed: " + data.error + "</div>";
+    }
+  });
+}
+
+function scanController() {
+  var slug = state.tenant ? state.tenant.slug : "";
+  if (!slug) { alert("No tenant selected"); return; }
+  var useExisting = usingExistingControllerCreds();
+  var siteFilter  = document.getElementById("ctrl-site-filter").value.trim();
+  var resultDiv   = document.getElementById("ctrlScanResult");
+  resultDiv.innerHTML = "<div class=\"alert alert-info\">Scanning controller for APs...</div>";
+
+  fetch("/api/controller/scan", {
+    method:  "POST",
+    headers: {"Content-Type": "application/json"},
+    body:    JSON.stringify({
+      tenant: slug, controller_type: "aruba-central",
+      use_existing: useExisting, fields: useExisting ? {} : collectControllerFields(),
+      site_filter: siteFilter
+    })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.error) { resultDiv.innerHTML = "<div class=\"alert alert-error\">" + data.error + "</div>"; return; }
+    state.controllerCandidates = data.candidates || [];
+    state.controllerVendorSlug = data.default_vendor_slug || "aruba";
+    if (state.controllerCandidates.length === 0) {
+      resultDiv.innerHTML = "<div class=\"alert alert-info\">No APs found" +
+        (siteFilter ? " for site '" + siteFilter + "'" : "") + ".</div>";
+      return;
+    }
+    var rows = state.controllerCandidates.map(function(c, i) {
+      return "<tr><td><input type=\"checkbox\" class=\"ctrl-cand\" data-idx=\"" + i + "\" checked></td>" +
+        "<td>" + c.name + "</td><td>" + (c.model || "") + "</td><td>" + (c.mac || "") + "</td>" +
+        "<td>" + (c.current_ip || "<em>pending DHCP</em>") + "</td><td>" + (c.site_label || "") + "</td></tr>";
+    }).join("");
+    resultDiv.innerHTML =
+      "<div class=\"alert alert-ok\">" + state.controllerCandidates.length +
+      " AP(s) found. Uncheck any you don't want, then add.</div>" +
+      "<table class=\"device-table\"><thead><tr><th></th><th>Name</th><th>Model</th><th>MAC</th>" +
+      "<th>Current IP</th><th>Site</th></tr></thead><tbody>" + rows + "</tbody></table>" +
+      "<div class=\"actions\" style=\"margin-top:10px\">" +
+      "<button class=\"btn btn-primary btn-sm\" onclick=\"addSelectedControllerCandidates()\">Add Selected to Device List</button></div>";
+  })
+  .catch(function(err) {
+    resultDiv.innerHTML = "<div class=\"alert alert-error\">" + err + "</div>";
+  });
+}
+
+function addSelectedControllerCandidates() {
+  var checks = document.querySelectorAll(".ctrl-cand:checked");
+  if (checks.length === 0) { alert("Nothing selected"); return; }
+  checks.forEach(function(chk) {
+    var candidate = state.controllerCandidates[parseInt(chk.dataset.idx, 10)];
+    addDiscoveredRow(candidate, state.controllerVendorSlug || "aruba");
+  });
+  switchTab("interactive");
+  alert(checks.length + " AP(s) added to the device list -- review them in Interactive Entry before validating.");
+}
+
+function addDiscoveredRow(candidate, vendorSlug) {
+  // Reuses addDeviceRow() for the row skeleton/wiring, then pre-fills it
+  // from a discovered AP candidate. current_ip has no prefix length on
+  // its own -- reuse the site's real_cidr prefix length if shadow-IP
+  // tracking is configured for this site, same convention the manual
+  // entry path already assumes for the IP/Prefix column.
+  addDeviceRow();
+  var id = rowId;
+
+  var dn = document.getElementById("dn-" + id);
+  if (dn) dn.value = candidate.name || "";
+  var model = document.getElementById("model-" + id);
+  if (model) model.value = candidate.model || "";
+  var serial = document.getElementById("serial-" + id);
+  if (serial) serial.value = candidate.serial || "";
+
+  if (candidate.current_ip) {
+    var prefixLen = (state.siteConfig && state.siteConfig.real_cidr) ?
+      state.siteConfig.real_cidr.split("/")[1] : "";
+    var ipField = document.getElementById("ip-" + id);
+    if (ipField) {
+      ipField.value = prefixLen ? (candidate.current_ip + "/" + prefixLen) : candidate.current_ip;
+      validateIpField(id);
+    }
+  }
+  // No current_ip yet (AP hasn't picked up a DHCP lease from the
+  // controller at scan time) -- left blank deliberately. Same fallback
+  // both onboarding surfaces already rely on: the scheduled
+  // DiscoverNewDevices/ReconcileDeviceIPs jobs pick up the IP later.
+
+  var roleSel = document.getElementById("role-" + id);
+  if (roleSel) roleSel.value = "ap";
+  var vendorSel = document.getElementById("vendor-" + id);
+  if (vendorSel) vendorSel.value = vendorSlug;
+
+  Promise.all([
+    fetch("/api/vendor-platforms/" + vendorSlug + "/ap").then(function(r) { return r.json(); }),
+    fetch("/api/managed-by/" + vendorSlug + "/ap").then(function(r) { return r.json(); })
+  ]).then(function(results) {
+    var platforms = results[0], methods = results[1];
+    var psel = document.getElementById("platform-" + id);
+    if (psel) {
+      psel.innerHTML = platforms.map(function(p) {
+        return "<option value=\"" + p.slug + "\"" + (p.default ? " selected" : "") + ">" + p.label + "</option>";
+      }).join("");
+    }
+    var msel = document.getElementById("mb-" + id);
+    if (msel) {
+      msel.innerHTML = methods.map(function(m) {
+        return "<option value=\"" + m.value + "\">" + m.label + "</option>";
+      }).join("");
+      if (msel.querySelector("option[value='aruba-central']")) msel.value = "aruba-central";
+    }
+  });
 }
 
 var rowId = 0;
