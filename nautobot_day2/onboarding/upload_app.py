@@ -906,9 +906,18 @@ def api_controller_scan():
     if new_refresh and new_refresh != values['ARUBA_REFRESH_TOKEN'] and use_existing:
         _persist_rotated_refresh_token(slug, controller_type, new_refresh)
 
+    # LIVE-VERIFIED against a real Aruba Central tenant: the documented/
+    # assumed 'site' query param (inherited from onboarding_mcp's own
+    # ArubaCentralClient.discover_aps(), itself never fully verified for
+    # site-scoping) returns zero results even for a group that
+    # demonstrably has APs in it -- every AP's own 'site' field is
+    # literally None on this tenant. The actual API concept in use here
+    # is Aruba Central's GROUP hierarchy ('group_name' on each AP), not
+    # its separate Site feature -- 'group' is the query param that
+    # actually filters correctly.
     params = {'limit': 1000}
     if site_filter:
-        params['site'] = site_filter
+        params['group'] = site_filter
     try:
         ap_resp = req_lib.get(
             f"{base_url}/monitoring/v2/aps",
@@ -927,7 +936,7 @@ def api_controller_scan():
             'model':      ap.get('model', ''),
             'mac':        ap.get('macaddr', ''),
             'current_ip': ap.get('ip_address', '') or '',
-            'site_label': ap.get('site', ''),
+            'site_label': ap.get('group_name') or ap.get('site') or '',
             'serial':     ap.get('serial', ''),
         })
 
