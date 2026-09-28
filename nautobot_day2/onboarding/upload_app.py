@@ -982,29 +982,68 @@ def api_controller_scan():
         # onboarding_mcp's own mist_client.py, whose discover_aps() hits
         # a per-SITE endpoint and is explicitly marked "PENDING LIVE
         # VERIFICATION" in its own docstring, needing a real Mist site_id
-        # the wizard user is unlikely to have handy. Filtering to AP-type
-        # devices via a 'type' field, and the optional filter as a plain
-        # name/site_id substring match (mirroring mist_client.py's own
-        # 'name_contains' convention, not an unverified query param) --
-        # both need confirming against a real Mist org before this is
-        # considered done, same bar Aruba Central's implementation was
-        # held to (its own 'group' vs 'site' mistake was only caught by
-        # testing live, not by reading documentation).
+        # the wizard user is unlikely to have handy.
+        #
+        # LIVE-FOUND BUG (this branch's first real test): inventory only
+        # carries asset/config data (name/model/serial/site_id) -- it does
+        # NOT carry live operational data (ip/status), confirmed against a
+        # real, connected, live AP whose current_ip came back empty here
+        # even though the Mist console showed it plainly. test_mist()'s
+        # own code already knew this: it calls a SEPARATE endpoint,
+        # /api/v1/orgs/{org_id}/stats/devices, specifically to get
+        # ip/status (its own preview line reads d.get('ip','?')) -- it
+        # just never merges the two, only prints both as separate
+        # previews. This now fetches stats too and merges by MAC address
+        # (matching inventory's own 'mac' field against whichever of
+        # stats' plausible MAC field names is present) since neither
+        # endpoint's exact id-field-naming match is independently
+        # confirmed -- MAC is the one identifier both are certain to
+        # share. STILL PENDING LIVE VERIFICATION: confirm this merge
+        # actually finds a match against a real org before trusting it
+        # fully.
         base_url = (values['MIST_BASE_URL'] or 'https://api.mist.com').rstrip('/')
         org_id = values['MIST_ORG_ID']
+        headers = {'Authorization': f"Token {values['MIST_API_TOKEN']}"}
+
         try:
-            inv_resp = req_lib.get(
-                f"{base_url}/api/v1/orgs/{org_id}/inventory",
-                headers={'Authorization': f"Token {values['MIST_API_TOKEN']}"},
-                timeout=20,
-            )
+            inv_resp = req_lib.get(f"{base_url}/api/v1/orgs/{org_id}/inventory", headers=headers, timeout=20)
         except Exception as e:
             return jsonify({'error': f"Inventory fetch failed: {e}"}), 502
         if not inv_resp.ok:
             return jsonify({'error': f"Inventory fetch failed: {inv_resp.status_code}: {inv_resp.text[:200]}"}), 502
-
         inventory = inv_resp.json()
         inventory = inventory if isinstance(inventory, list) else inventory.get('results', [])
+
+        # Live stats -- best-effort. A failure here shouldn't block the
+        # scan entirely; it just means current_ip/status stay unknown,
+        # same degraded-but-usable state as before this fix.
+        stats_by_mac = {}
+        try:
+            stats_resp = req_lib.get(f"{base_url}/api/v1/orgs/{org_id}/stats/devices", headers=headers, timeout=20)
+            if stats_resp.ok:
+                stats = stats_resp.json()
+                stats = stats if isinstance(stats, list) else stats.get('results', [])
+                for s in stats:
+                    mac = (s.get('mac') or s.get('macaddr') or '').lower()
+                    if mac:
+                        stats_by_mac[mac] = s
+        except Exception:
+            pass
+
+        # Site id -> friendly name -- best-effort, same reasoning as
+        # stats: inventory only carries the site's id, not its name, and
+        # this is a nice-to-have display value, not load-bearing for
+        # anything downstream.
+        site_names = {}
+        try:
+            sites_resp = req_lib.get(f"{base_url}/api/v1/orgs/{org_id}/sites", headers=headers, timeout=20)
+            if sites_resp.ok:
+                for site in sites_resp.json():
+                    if site.get('id'):
+                        site_names[site['id']] = site.get('name', site['id'])
+        except Exception:
+            pass
+
         for dev in inventory:
             dev_type = (dev.get('type') or '').lower()
             if dev_type and dev_type != 'ap':
@@ -1013,12 +1052,15 @@ def api_controller_scan():
             site_id = dev.get('site_id', '') or ''
             if site_filter and site_filter.lower() not in name.lower() and site_filter != site_id:
                 continue
+
+            mac = (dev.get('mac') or '').lower()
+            live = stats_by_mac.get(mac, {})
             candidates.append({
                 'name':       name,
                 'model':      dev.get('model', ''),
                 'mac':        dev.get('mac', ''),
-                'current_ip': dev.get('ip', '') or '',
-                'site_label': site_id,
+                'current_ip': live.get('ip', '') or '',
+                'site_label': site_names.get(site_id, site_id),
                 'serial':     dev.get('serial', ''),
             })
 
