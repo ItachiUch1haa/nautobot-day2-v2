@@ -745,6 +745,31 @@ def _resolve_controller_fields(slug, controller_type, use_existing, overrides):
     return values, missing, cfg
 
 
+def _persist_rotated_refresh_token(slug, controller_type, new_refresh_token):
+    """
+    LIVE-FOUND BUG (this feature's first real test): Aruba Central rotates
+    the refresh_token on EVERY oauth2/token exchange, same as
+    aruba_central_client.py's own docstring already documents -- Test
+    Connection's exchange rotates it, then Scan for APs' own independent
+    exchange reused the now-already-invalidated old value and got a real
+    'Invalid refresh_token' 400 from Aruba Central. Persisting the new
+    value to OpenBao immediately (best-effort, matching
+    aruba_central_client.py's own non-fatal handling -- the caller's
+    current access_token is still valid and usable even if this write
+    fails) means the *next* request's fresh fetch_openbao_secret() call
+    picks up the current value instead of a stale one.
+    """
+    from openbao_client import update_rotated_credential
+    cfg = CONTROLLER_POLL_TYPES.get(controller_type)
+    suffix = slug.upper().replace('-', '_')
+    try:
+        update_rotated_credential(slug, cfg['secrets_group_prefix'], {
+            f"ARUBA_REFRESH_TOKEN_{suffix}": new_refresh_token,
+        })
+    except Exception:
+        pass
+
+
 @app.route('/api/controller/existing', methods=['GET'])
 def api_controller_existing():
     """
@@ -807,6 +832,14 @@ def api_controller_test():
             refresh_token=values['ARUBA_REFRESH_TOKEN'],
             base_url=values['ARUBA_CENTRAL_BASE_URL'],
         )
+        new_refresh = result.get('new_refresh_token')
+        if new_refresh:
+            if use_existing:
+                _persist_rotated_refresh_token(slug, controller_type, new_refresh)
+            # Always surfaced, not just when reusing existing creds --
+            # a fresh, first-time manual entry (Flow 2) needs this too,
+            # so the frontend can update the in-memory field it's about
+            # to persist via /api/save-credentials right after this call.
     else:
         return jsonify({'error': f"Unsupported controller_type '{controller_type}'"}), 400
 
@@ -860,7 +893,18 @@ def api_controller_scan():
         return jsonify({'error': f"Token exchange failed: {e}"}), 502
     if not token_resp.ok:
         return jsonify({'error': f"Token exchange failed: {token_resp.status_code}: {token_resp.text[:200]}"}), 502
-    access_token = token_resp.json().get('access_token', '')
+    token_data = token_resp.json()
+    access_token = token_data.get('access_token', '')
+
+    # LIVE-FOUND BUG (this feature's first real test, see
+    # _persist_rotated_refresh_token()'s own docstring): this endpoint's
+    # own independent token exchange rotates the refresh_token exactly
+    # like /api/controller/test's does -- persist it the same way here
+    # too, or a Test-then-Scan sequence (or two scans in a row) fails
+    # with a real 'Invalid refresh_token' on the second call.
+    new_refresh = token_data.get('refresh_token', '')
+    if new_refresh and new_refresh != values['ARUBA_REFRESH_TOKEN'] and use_existing:
+        _persist_rotated_refresh_token(slug, controller_type, new_refresh)
 
     params = {'limit': 1000}
     if site_filter:
@@ -887,12 +931,15 @@ def api_controller_scan():
             'serial':     ap.get('serial', ''),
         })
 
-    return jsonify({
+    response = {
         'controller_type':     controller_type,
         'default_vendor_slug': cfg['default_vendor_slug'],
         'candidates':          candidates,
         'count':               len(candidates),
-    })
+    }
+    if new_refresh and new_refresh != values['ARUBA_REFRESH_TOKEN']:
+        response['new_refresh_token'] = new_refresh
+    return jsonify(response)
 
 
 @app.route('/api/validate-row', methods=['POST'])

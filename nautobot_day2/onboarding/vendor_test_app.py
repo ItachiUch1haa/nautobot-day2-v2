@@ -322,6 +322,12 @@ def test_aruba_central(client_id, client_secret, refresh_token, base_url):
 
     if new_refresh and new_refresh != refresh_token:
         result['fix_hint'] = f'New refresh_token generated — update env: ARUBA_REFRESH_TOKEN_<SLUG>={new_refresh}'
+        # Structured, not just human-readable -- Aruba Central rotates the
+        # refresh_token on EVERY exchange (this codebase's own hard-learned
+        # lesson, see aruba_central_client.py's docstring), so any caller
+        # that goes on to make a second Aruba Central call needs this exact
+        # value, not just a hint string to read and act on manually.
+        result['new_refresh_token'] = new_refresh
 
     # Get APs
     r2 = req_lib.get(f'{base_url}/monitoring/v2/aps',
