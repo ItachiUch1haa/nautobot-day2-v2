@@ -422,6 +422,21 @@ function createNewTenant() {
         resultDiv.innerHTML = "<div class=\"alert alert-error\">" + data.error + "</div>";
         return;
       }
+      if (data.failed > 0) {
+        // LIVE-FOUND GAP: this branch didn't exist before -- a failed
+        // sub-step (e.g. create_namespace() erroring while
+        // create_tenant_record() still succeeded) was silently hidden
+        // behind a generic success banner, only surfacing much later as
+        // a confusing Step 6 failure with no link back to Step 1.
+        var failedItems = (data.results || [])
+          .filter(function(r) { return String(r[2]).indexOf("FAILED") === 0; })
+          .map(function(r) { return r[1] + " '" + r[0] + "': " + r[2]; })
+          .join("<br>");
+        resultDiv.innerHTML = "<div class=\"alert alert-error\">" +
+          data.failed + " item(s) failed to create — this tenant is NOT fully set up yet:<br>" +
+          failedItems + "<br>Fix the underlying issue and resubmit before continuing.</div>";
+        return;
+      }
       resultDiv.innerHTML = "<div class=\"alert alert-ok\">Tenant created (" +
         data.created + " created, " + data.skipped + " already existed).</div>";
       loadTenants().then(function() {
