@@ -104,6 +104,19 @@ class OnboardSite(Job):
         except ShadowIPValidationError as e:
             self.logger.error(str(e))
             raise
+        except Exception as e:
+            # LIVE-FOUND BUG: any exception other than ShadowIPValidationError
+            # (e.g. Namespace.DoesNotExist for a not-yet-created tenant
+            # namespace) went uncaught here -- no job_log_entry was ever
+            # written, and JobResult.status/.traceback don't reliably update
+            # on this Nautobot version either (see this file's own module
+            # docstring and upload_app.py's _trigger_onboard_site_job()), so
+            # both onboarding surfaces' 45s log-polling loop saw nothing at
+            # all and reported a bare timeout instead of the real cause.
+            # Logging here guarantees a job_log_entry exists for every
+            # failure mode, not just the anticipated validation ones.
+            self.logger.error(f"OnboardSite failed unexpectedly: {e}")
+            raise
         self.logger.info(
             f"Onboarded site '{site_name}' ({customer_ns_name}): "
             f"real prefix {real_prefix.prefix} <-> shadow prefix {shadow_prefix.prefix}"
