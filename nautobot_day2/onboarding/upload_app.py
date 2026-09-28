@@ -693,15 +693,15 @@ def api_validate_credentials():
 #     first-time entry so the *next* site for this tenant lands in the
 #     "reuse existing" path automatically -- no new write path needed.
 #
-# AP-only for now, Aruba Central only -- the only controller this codebase
-# has actually live-tested AP discovery against this cycle. Mist's own
-# discover_aps() equivalent (onboarding_mcp/controllers/mist_client.py) is
-# explicitly marked "PENDING LIVE VERIFICATION" in its own docstring and a
-# per-site Mist site_id (not a free-text name) would be needed -- adding
-# it here before it's actually been run against a real Mist org would
-# repeat the exact mistake this codebase's own history warns against
-# (trust the live behavior, not the spec). Switch discovery (any vendor)
-# is tracked separately as a v2 follow-up.
+# AP-only for now. Aruba Central shipped first and is fully live-tested
+# (two real integration bugs found and fixed against a real tenant --
+# refresh-token rotation, and 'group' vs 'site' filtering). Mist is added
+# here as PENDING LIVE VERIFICATION (GitHub issue #7) -- its test-connection
+# step reuses vendor_test_app.py::test_mist(), already proven via Step 5's
+# existing usage, but its scan step (api_controller_scan()) is new code
+# that has NOT yet been run against a real Mist org. Meraki is not added
+# yet at all -- vendor_test_app.py has no tested function for it. Switch
+# discovery (any vendor) is tracked separately (issue #6).
 CONTROLLER_POLL_TYPES = {
     'aruba-central': {
         'label': 'Aruba Central',
@@ -713,6 +713,16 @@ CONTROLLER_POLL_TYPES = {
             {'name': 'ARUBA_REFRESH_TOKEN',    'label': 'Refresh Token', 'sensitive': True},
         ],
         'default_vendor_slug': 'aruba',
+    },
+    'mist': {
+        'label': 'Juniper Mist',
+        'secrets_group_prefix': 'juniper-mist-api',
+        'fields': [
+            {'name': 'MIST_BASE_URL',  'label': 'Base URL (region, e.g. api.mist.com)', 'sensitive': False},
+            {'name': 'MIST_API_TOKEN', 'label': 'API Token', 'sensitive': True},
+            {'name': 'MIST_ORG_ID',    'label': 'Org ID', 'sensitive': False},
+        ],
+        'default_vendor_slug': 'juniper',
     },
 }
 
@@ -770,6 +780,21 @@ def _persist_rotated_refresh_token(slug, controller_type, new_refresh_token):
         pass
 
 
+@app.route('/api/controller/types', methods=['GET'])
+def api_controller_types():
+    """
+    Lists the controller types Step 2's dropdown can offer, with each
+    one's field metadata (name/label/sensitive) so the frontend can
+    render credential inputs dynamically -- same pattern Step 4 already
+    uses for its own dynamic credential fields. Never returns a value,
+    only the field shape.
+    """
+    return jsonify([
+        {'value': key, 'label': cfg['label'], 'fields': cfg['fields']}
+        for key, cfg in CONTROLLER_POLL_TYPES.items()
+    ])
+
+
 @app.route('/api/controller/existing', methods=['GET'])
 def api_controller_existing():
     """
@@ -808,7 +833,7 @@ def api_controller_test():
     already-live-verified test_aruba_central() rather than
     re-implementing the OAuth exchange here.
     """
-    from vendor_test_app import test_aruba_central
+    from vendor_test_app import test_aruba_central, test_mist
 
     data = request.json or {}
     slug = data.get('tenant', '')
@@ -840,6 +865,14 @@ def api_controller_test():
             # a fresh, first-time manual entry (Flow 2) needs this too,
             # so the frontend can update the in-memory field it's about
             # to persist via /api/save-credentials right after this call.
+    elif controller_type == 'mist':
+        # Mist's API token doesn't rotate -- no equivalent of Aruba
+        # Central's refresh-token handling needed here.
+        result = test_mist(
+            token=values['MIST_API_TOKEN'],
+            org_id=values['MIST_ORG_ID'],
+            base_url=values['MIST_BASE_URL'] or 'https://api.mist.com',
+        )
     else:
         return jsonify({'error': f"Unsupported controller_type '{controller_type}'"}), 400
 
@@ -874,71 +907,123 @@ def api_controller_scan():
     if missing:
         return jsonify({'error': f"Missing required field(s): {missing}"}), 400
 
-    if controller_type != 'aruba-central':
-        return jsonify({'error': f"Unsupported controller_type '{controller_type}'"}), 400
-
-    base_url = values['ARUBA_CENTRAL_BASE_URL'].rstrip('/')
-    try:
-        token_resp = req_lib.post(
-            f"{base_url}/oauth2/token",
-            params={
-                'client_id':     values['ARUBA_CLIENT_ID'],
-                'client_secret': values['ARUBA_CLIENT_SECRET'],
-                'grant_type':    'refresh_token',
-                'refresh_token': values['ARUBA_REFRESH_TOKEN'],
-            },
-            timeout=15,
-        )
-    except Exception as e:
-        return jsonify({'error': f"Token exchange failed: {e}"}), 502
-    if not token_resp.ok:
-        return jsonify({'error': f"Token exchange failed: {token_resp.status_code}: {token_resp.text[:200]}"}), 502
-    token_data = token_resp.json()
-    access_token = token_data.get('access_token', '')
-
-    # LIVE-FOUND BUG (this feature's first real test, see
-    # _persist_rotated_refresh_token()'s own docstring): this endpoint's
-    # own independent token exchange rotates the refresh_token exactly
-    # like /api/controller/test's does -- persist it the same way here
-    # too, or a Test-then-Scan sequence (or two scans in a row) fails
-    # with a real 'Invalid refresh_token' on the second call.
-    new_refresh = token_data.get('refresh_token', '')
-    if new_refresh and new_refresh != values['ARUBA_REFRESH_TOKEN'] and use_existing:
-        _persist_rotated_refresh_token(slug, controller_type, new_refresh)
-
-    # LIVE-VERIFIED against a real Aruba Central tenant: the documented/
-    # assumed 'site' query param (inherited from onboarding_mcp's own
-    # ArubaCentralClient.discover_aps(), itself never fully verified for
-    # site-scoping) returns zero results even for a group that
-    # demonstrably has APs in it -- every AP's own 'site' field is
-    # literally None on this tenant. The actual API concept in use here
-    # is Aruba Central's GROUP hierarchy ('group_name' on each AP), not
-    # its separate Site feature -- 'group' is the query param that
-    # actually filters correctly.
-    params = {'limit': 1000}
-    if site_filter:
-        params['group'] = site_filter
-    try:
-        ap_resp = req_lib.get(
-            f"{base_url}/monitoring/v2/aps",
-            headers={'Authorization': f'Bearer {access_token}'},
-            params=params, timeout=20,
-        )
-    except Exception as e:
-        return jsonify({'error': f"AP list failed: {e}"}), 502
-    if not ap_resp.ok:
-        return jsonify({'error': f"AP list failed: {ap_resp.status_code}: {ap_resp.text[:200]}"}), 502
-
+    new_refresh = None
     candidates = []
-    for ap in ap_resp.json().get('aps', []):
-        candidates.append({
-            'name':       ap.get('name') or ap.get('macaddr', 'unknown'),
-            'model':      ap.get('model', ''),
-            'mac':        ap.get('macaddr', ''),
-            'current_ip': ap.get('ip_address', '') or '',
-            'site_label': ap.get('group_name') or ap.get('site') or '',
-            'serial':     ap.get('serial', ''),
-        })
+
+    if controller_type == 'aruba-central':
+        base_url = values['ARUBA_CENTRAL_BASE_URL'].rstrip('/')
+        try:
+            token_resp = req_lib.post(
+                f"{base_url}/oauth2/token",
+                params={
+                    'client_id':     values['ARUBA_CLIENT_ID'],
+                    'client_secret': values['ARUBA_CLIENT_SECRET'],
+                    'grant_type':    'refresh_token',
+                    'refresh_token': values['ARUBA_REFRESH_TOKEN'],
+                },
+                timeout=15,
+            )
+        except Exception as e:
+            return jsonify({'error': f"Token exchange failed: {e}"}), 502
+        if not token_resp.ok:
+            return jsonify({'error': f"Token exchange failed: {token_resp.status_code}: {token_resp.text[:200]}"}), 502
+        token_data = token_resp.json()
+        access_token = token_data.get('access_token', '')
+
+        # LIVE-FOUND BUG (this feature's first real test, see
+        # _persist_rotated_refresh_token()'s own docstring): this
+        # endpoint's own independent token exchange rotates the
+        # refresh_token exactly like /api/controller/test's does --
+        # persist it the same way here too, or a Test-then-Scan sequence
+        # (or two scans in a row) fails with a real 'Invalid
+        # refresh_token' on the second call.
+        new_refresh = token_data.get('refresh_token', '')
+        if new_refresh and new_refresh != values['ARUBA_REFRESH_TOKEN'] and use_existing:
+            _persist_rotated_refresh_token(slug, controller_type, new_refresh)
+
+        # LIVE-VERIFIED against a real Aruba Central tenant: the
+        # documented/assumed 'site' query param (inherited from
+        # onboarding_mcp's own ArubaCentralClient.discover_aps(), itself
+        # never fully verified for site-scoping) returns zero results
+        # even for a group that demonstrably has APs in it -- every AP's
+        # own 'site' field is literally None on this tenant. The actual
+        # API concept in use here is Aruba Central's GROUP hierarchy
+        # ('group_name' on each AP), not its separate Site feature --
+        # 'group' is the query param that actually filters correctly.
+        params = {'limit': 1000}
+        if site_filter:
+            params['group'] = site_filter
+        try:
+            ap_resp = req_lib.get(
+                f"{base_url}/monitoring/v2/aps",
+                headers={'Authorization': f'Bearer {access_token}'},
+                params=params, timeout=20,
+            )
+        except Exception as e:
+            return jsonify({'error': f"AP list failed: {e}"}), 502
+        if not ap_resp.ok:
+            return jsonify({'error': f"AP list failed: {ap_resp.status_code}: {ap_resp.text[:200]}"}), 502
+
+        for ap in ap_resp.json().get('aps', []):
+            candidates.append({
+                'name':       ap.get('name') or ap.get('macaddr', 'unknown'),
+                'model':      ap.get('model', ''),
+                'mac':        ap.get('macaddr', ''),
+                'current_ip': ap.get('ip_address', '') or '',
+                'site_label': ap.get('group_name') or ap.get('site') or '',
+                'serial':     ap.get('serial', ''),
+            })
+
+    elif controller_type == 'mist':
+        # PENDING LIVE VERIFICATION (per GitHub issue #7): reuses the
+        # SAME org-wide inventory endpoint vendor_test_app.py::test_mist()
+        # already uses and Step 5 already relies on for real credential
+        # tests (/api/v1/orgs/{org_id}/inventory) rather than
+        # onboarding_mcp's own mist_client.py, whose discover_aps() hits
+        # a per-SITE endpoint and is explicitly marked "PENDING LIVE
+        # VERIFICATION" in its own docstring, needing a real Mist site_id
+        # the wizard user is unlikely to have handy. Filtering to AP-type
+        # devices via a 'type' field, and the optional filter as a plain
+        # name/site_id substring match (mirroring mist_client.py's own
+        # 'name_contains' convention, not an unverified query param) --
+        # both need confirming against a real Mist org before this is
+        # considered done, same bar Aruba Central's implementation was
+        # held to (its own 'group' vs 'site' mistake was only caught by
+        # testing live, not by reading documentation).
+        base_url = (values['MIST_BASE_URL'] or 'https://api.mist.com').rstrip('/')
+        org_id = values['MIST_ORG_ID']
+        try:
+            inv_resp = req_lib.get(
+                f"{base_url}/api/v1/orgs/{org_id}/inventory",
+                headers={'Authorization': f"Token {values['MIST_API_TOKEN']}"},
+                timeout=20,
+            )
+        except Exception as e:
+            return jsonify({'error': f"Inventory fetch failed: {e}"}), 502
+        if not inv_resp.ok:
+            return jsonify({'error': f"Inventory fetch failed: {inv_resp.status_code}: {inv_resp.text[:200]}"}), 502
+
+        inventory = inv_resp.json()
+        inventory = inventory if isinstance(inventory, list) else inventory.get('results', [])
+        for dev in inventory:
+            dev_type = (dev.get('type') or '').lower()
+            if dev_type and dev_type != 'ap':
+                continue
+            name = dev.get('name') or dev.get('mac', 'unknown')
+            site_id = dev.get('site_id', '') or ''
+            if site_filter and site_filter.lower() not in name.lower() and site_filter != site_id:
+                continue
+            candidates.append({
+                'name':       name,
+                'model':      dev.get('model', ''),
+                'mac':        dev.get('mac', ''),
+                'current_ip': dev.get('ip', '') or '',
+                'site_label': site_id,
+                'serial':     dev.get('serial', ''),
+            })
+
+    else:
+        return jsonify({'error': f"Unsupported controller_type '{controller_type}'"}), 400
 
     response = {
         'controller_type':     controller_type,
@@ -946,7 +1031,7 @@ def api_controller_scan():
         'candidates':          candidates,
         'count':               len(candidates),
     }
-    if new_refresh and new_refresh != values['ARUBA_REFRESH_TOKEN']:
+    if new_refresh and new_refresh != values.get('ARUBA_REFRESH_TOKEN'):
         response['new_refresh_token'] = new_refresh
     return jsonify(response)
 

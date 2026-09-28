@@ -257,35 +257,29 @@ select:focus, input:focus { outline: none; border-color: #1B3A6B; }
 
     <div id="tabController" style="display:none">
       <div class="alert alert-info">
-        Poll Aruba Central for this site's current AP inventory instead of
-        entering rows manually -- useful since controller-managed APs get
-        a dynamic IP from the controller's own DHCP pool. Discovered APs
-        are added to the Interactive Entry list above; everything after
-        Step 2 (validate, credentials, test, deploy) works exactly the
-        same regardless of how a row got there.
+        Poll a cloud controller for this site's current AP inventory
+        instead of entering rows manually -- useful since controller-managed
+        APs get a dynamic IP from the controller's own DHCP pool.
+        Discovered APs are added to the Interactive Entry list above;
+        everything after Step 2 (validate, credentials, test, deploy)
+        works exactly the same regardless of how a row got there.
       </div>
 
+      <div class="cred-field-row"><label>Controller type</label>
+        <select id="ctrl-controller-type" onchange="onControllerTypeChange()"></select></div>
+
       <div id="ctrlExistingBox" style="display:none" class="alert alert-ok">
-        Existing Aruba Central credentials found for this tenant (<span id="ctrlExistingPreview"></span>).
+        Existing credentials found for this tenant (<span id="ctrlExistingPreview"></span>).
         <label style="display:block;margin-top:6px;font-weight:400">
           <input type="checkbox" id="ctrlUseExisting" checked onchange="toggleControllerFields()">
           Reuse them for this site
         </label>
       </div>
 
-      <div id="ctrlFieldsBox">
-        <div class="cred-field-row"><label>Base URL</label>
-          <input type="text" id="ctrl-base-url" placeholder="https://apigw-prod2.central.arubanetworks.com"></div>
-        <div class="cred-field-row"><label>Client ID</label>
-          <input type="text" id="ctrl-client-id"></div>
-        <div class="cred-field-row"><label>Client Secret</label>
-          <input type="password" id="ctrl-client-secret"></div>
-        <div class="cred-field-row"><label>Refresh Token</label>
-          <input type="password" id="ctrl-refresh-token"></div>
-      </div>
+      <div id="ctrlFieldsBox"></div>
 
-      <div class="cred-field-row"><label>Group filter <span class="badge badge-muted">optional</span></label>
-        <input type="text" id="ctrl-site-filter" placeholder="exact Aruba Central group name, e.g. AOS-8-Zeta"></div>
+      <div class="cred-field-row"><label>Group / site filter <span class="badge badge-muted">optional</span></label>
+        <input type="text" id="ctrl-site-filter" placeholder="e.g. AOS-8-Zeta"></div>
 
       <div class="actions" style="margin-top:12px">
         <button class="btn btn-outline btn-sm" onclick="testController()">Test Connection</button>
@@ -558,19 +552,55 @@ function switchTab(tab) {
   document.getElementById("tab-interactive").className = "tab" + (tab === "interactive" ? " active" : "");
   document.getElementById("tab-csv").className         = "tab" + (tab === "csv" ? " active" : "");
   document.getElementById("tab-controller").className  = "tab" + (tab === "controller" ? " active" : "");
-  if (tab === "controller") checkExistingControllerCreds();
+  if (tab === "controller") loadControllerTypes().then(onControllerTypeChange);
 }
 
-// ── Cloud Controller polling (Step 2 extension, Aruba Central AP discovery) ──
+// ── Cloud Controller polling (Step 2 extension, AP discovery) ──────────────
+// Controller-type-agnostic: renders credential fields dynamically from
+// /api/controller/types (same pattern Step 4 already uses for its own
+// per-vendor credential fields), same as onboarding_mcp exposes a
+// controller_type per session rather than hardcoding one vendor.
 
 function tenantSuffix(slug) {
   return slug.toUpperCase().replace(/-/g, "_");
 }
 
+function loadControllerTypes() {
+  if (state.controllerTypes) return Promise.resolve(state.controllerTypes);
+  return fetch("/api/controller/types")
+    .then(function(r) { return r.json(); })
+    .then(function(types) {
+      state.controllerTypes = types;
+      var sel = document.getElementById("ctrl-controller-type");
+      sel.innerHTML = types.map(function(t) {
+        return "<option value=\"" + t.value + "\">" + t.label + "</option>";
+      }).join("");
+      return types;
+    });
+}
+
+function currentControllerTypeCfg() {
+  var value = document.getElementById("ctrl-controller-type").value;
+  return (state.controllerTypes || []).filter(function(t) { return t.value === value; })[0];
+}
+
+function onControllerTypeChange() {
+  var cfg = currentControllerTypeCfg();
+  if (!cfg) return;
+  var box = document.getElementById("ctrlFieldsBox");
+  box.innerHTML = cfg.fields.map(function(f) {
+    var inputType = f.sensitive ? "password" : "text";
+    return "<div class=\"cred-field-row\"><label>" + f.label + "</label>" +
+      "<input type=\"" + inputType + "\" id=\"ctrl-field-" + f.name + "\"></div>";
+  }).join("");
+  checkExistingControllerCreds();
+}
+
 function checkExistingControllerCreds() {
   var slug = state.tenant ? state.tenant.slug : "";
-  if (!slug) return;
-  fetch("/api/controller/existing?tenant=" + encodeURIComponent(slug) + "&controller_type=aruba-central")
+  var cfg = currentControllerTypeCfg();
+  if (!slug || !cfg) return;
+  fetch("/api/controller/existing?tenant=" + encodeURIComponent(slug) + "&controller_type=" + encodeURIComponent(cfg.value))
     .then(function(r) { return r.json(); })
     .then(function(data) {
       var box = document.getElementById("ctrlExistingBox");
@@ -598,33 +628,38 @@ function usingExistingControllerCreds() {
   return box.style.display !== "none" && chk && chk.checked;
 }
 
-// LIVE-FOUND BUG (this feature's first real test): Aruba Central rotates
-// the refresh_token on EVERY exchange -- Test Connection's own exchange
+// LIVE-FOUND BUG (Aruba Central's first real test): it rotates the
+// refresh_token on EVERY exchange -- Test Connection's own exchange
 // invalidates whatever Scan for APs would otherwise still be holding, and
 // vice versa. When reusing an existing tenant's saved credentials the
 // backend already persists the rotation to OpenBao immediately (every
 // later request re-reads fresh), but a first-time MANUAL entry (Flow 2)
 // only exists in this form field -- update it here so the next click in
-// the same session doesn't reuse an already-invalidated value.
+// the same session doesn't reuse an already-invalidated value. A no-op
+// for controller types with no rotation concept (e.g. Mist's static
+// token) since data.new_refresh_token is simply absent for those.
 function applyRotatedRefreshToken(data, useExisting) {
   if (!useExisting && data && data.new_refresh_token) {
-    var field = document.getElementById("ctrl-refresh-token");
+    var field = document.getElementById("ctrl-field-ARUBA_REFRESH_TOKEN");
     if (field) field.value = data.new_refresh_token;
   }
 }
 
 function collectControllerFields() {
-  return {
-    ARUBA_CENTRAL_BASE_URL: document.getElementById("ctrl-base-url").value.trim(),
-    ARUBA_CLIENT_ID:        document.getElementById("ctrl-client-id").value.trim(),
-    ARUBA_CLIENT_SECRET:    document.getElementById("ctrl-client-secret").value.trim(),
-    ARUBA_REFRESH_TOKEN:    document.getElementById("ctrl-refresh-token").value.trim()
-  };
+  var cfg = currentControllerTypeCfg();
+  var out = {};
+  (cfg ? cfg.fields : []).forEach(function(f) {
+    var el = document.getElementById("ctrl-field-" + f.name);
+    if (el) out[f.name] = el.value.trim();
+  });
+  return out;
 }
 
 function testController() {
   var slug = state.tenant ? state.tenant.slug : "";
+  var cfg = currentControllerTypeCfg();
   if (!slug) { alert("No tenant selected"); return; }
+  if (!cfg) { alert("No controller type selected"); return; }
   var useExisting = usingExistingControllerCreds();
   var resultDiv = document.getElementById("ctrlTestResult");
   resultDiv.innerHTML = "<div class=\"alert alert-info\">Testing connection...</div>";
@@ -633,7 +668,7 @@ function testController() {
     method:  "POST",
     headers: {"Content-Type": "application/json"},
     body:    JSON.stringify({
-      tenant: slug, controller_type: "aruba-central",
+      tenant: slug, controller_type: cfg.value,
       use_existing: useExisting, fields: useExisting ? {} : collectControllerFields()
     })
   })
@@ -643,7 +678,7 @@ function testController() {
     applyRotatedRefreshToken(data, useExisting);
     if (data.status === "ready") {
       resultDiv.innerHTML = "<div class=\"alert alert-ok\">" + data.message + "</div>";
-      if (!useExisting) saveControllerCredentials(slug);
+      if (!useExisting) saveControllerCredentials(slug, cfg);
     } else {
       resultDiv.innerHTML = "<div class=\"alert alert-error\">" + (data.message || "Connection test failed") + "</div>";
     }
@@ -653,7 +688,7 @@ function testController() {
   });
 }
 
-function saveControllerCredentials(slug) {
+function saveControllerCredentials(slug, cfg) {
   // Persists a first-time entry (new tenant's first site) so the NEXT
   // site for this same tenant finds it via checkExistingControllerCreds()
   // instead of asking again -- reuses the existing /api/save-credentials
@@ -679,7 +714,9 @@ function saveControllerCredentials(slug) {
 
 function scanController() {
   var slug = state.tenant ? state.tenant.slug : "";
+  var cfg = currentControllerTypeCfg();
   if (!slug) { alert("No tenant selected"); return; }
+  if (!cfg) { alert("No controller type selected"); return; }
   var useExisting = usingExistingControllerCreds();
   var siteFilter  = document.getElementById("ctrl-site-filter").value.trim();
   var resultDiv   = document.getElementById("ctrlScanResult");
@@ -689,7 +726,7 @@ function scanController() {
     method:  "POST",
     headers: {"Content-Type": "application/json"},
     body:    JSON.stringify({
-      tenant: slug, controller_type: "aruba-central",
+      tenant: slug, controller_type: cfg.value,
       use_existing: useExisting, fields: useExisting ? {} : collectControllerFields(),
       site_filter: siteFilter
     })
@@ -700,9 +737,10 @@ function scanController() {
     applyRotatedRefreshToken(data, useExisting);
     state.controllerCandidates = data.candidates || [];
     state.controllerVendorSlug = data.default_vendor_slug || "aruba";
+    state.controllerType = data.controller_type || cfg.value;
     if (state.controllerCandidates.length === 0) {
       resultDiv.innerHTML = "<div class=\"alert alert-info\">No APs found" +
-        (siteFilter ? " for site '" + siteFilter + "'" : "") + ".</div>";
+        (siteFilter ? " for '" + siteFilter + "'" : "") + ".</div>";
       return;
     }
     var rows = state.controllerCandidates.map(function(c, i) {
@@ -728,13 +766,13 @@ function addSelectedControllerCandidates() {
   if (checks.length === 0) { alert("Nothing selected"); return; }
   checks.forEach(function(chk) {
     var candidate = state.controllerCandidates[parseInt(chk.dataset.idx, 10)];
-    addDiscoveredRow(candidate, state.controllerVendorSlug || "aruba");
+    addDiscoveredRow(candidate, state.controllerVendorSlug || "aruba", state.controllerType);
   });
   switchTab("interactive");
   alert(checks.length + " AP(s) added to the device list -- review them in Interactive Entry before validating.");
 }
 
-function addDiscoveredRow(candidate, vendorSlug) {
+function addDiscoveredRow(candidate, vendorSlug, controllerType) {
   // Reuses addDeviceRow() for the row skeleton/wiring, then pre-fills it
   // from a discovered AP candidate. current_ip has no prefix length on
   // its own -- reuse the site's real_cidr prefix length if shadow-IP
@@ -785,7 +823,11 @@ function addDiscoveredRow(candidate, vendorSlug) {
       msel.innerHTML = methods.map(function(m) {
         return "<option value=\"" + m.value + "\">" + m.label + "</option>";
       }).join("");
-      if (msel.querySelector("option[value='aruba-central']")) msel.value = "aruba-central";
+      // managed_by option values are the same strings as controller_type
+      // (e.g. "aruba-central", "mist") by this codebase's own convention.
+      if (controllerType && msel.querySelector("option[value='" + controllerType + "']")) {
+        msel.value = controllerType;
+      }
     }
   });
 }
