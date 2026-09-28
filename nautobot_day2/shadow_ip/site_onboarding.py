@@ -116,10 +116,29 @@ def onboard_site(
         prefix=shadow_cidr, namespace=global_ns,
         defaults={"status": active_status},
     )
-    real_prefix, _ = Prefix.objects.get_or_create(
-        prefix=real_cidr, namespace=customer_ns, location=location,
-        defaults={"status": active_status},
+    # LIVE-FOUND BUG: this get_or_create() used to also filter on
+    # location=location -- but Nautobot's real DB uniqueness constraint on
+    # Prefix is (namespace, network, prefix_length) only, confirmed live by
+    # a real IntegrityError ("duplicate key value violates unique
+    # constraint ipam_prefix_namespace_id_network_prefix_length_..._uniq")
+    # for a real_cidr that already existed in this namespace under a
+    # DIFFERENT (or unset) location -- e.g. created earlier by
+    # nautobot_onboard_v2.py::get_or_create_prefix(), which never sets a
+    # location on a Prefix at all. Filtering on location too meant this
+    # call's own lookup missed that real pre-existing row and tried to
+    # INSERT a duplicate, which the database then correctly rejected --
+    # the exact same class of bug already fixed for Location existence
+    # checks in nautobot_onboard_v2.py::get_or_create_location(). Matching
+    # on (namespace, prefix) alone and backfilling location only when it
+    # was previously unset avoids the crash without silently reassigning
+    # an already-differently-located prefix out from under a real site.
+    real_prefix, created = Prefix.objects.get_or_create(
+        prefix=real_cidr, namespace=customer_ns,
+        defaults={"status": active_status, "location": location},
     )
+    if not created and real_prefix.location is None:
+        real_prefix.location = location
+        real_prefix.save()
     real_prefix.custom_field_data["nat_shadow_prefix"] = str(shadow_prefix.id)
     real_prefix.save()
 
