@@ -141,12 +141,23 @@ def get_or_create_location(name, type_name, parent_id, status_id, dry_run):
     if not type_id:
         return None, f"FAILED: location type '{type_name}' not in Nautobot"
 
-    # Search by name -- verify BOTH location_type AND parent match, since
-    # Nautobot's actual uniqueness constraint is (parent, name) together.
-    # Checking name+type alone can miss a real pre-existing match whenever
-    # two locations share a name+type but sit under different parents,
-    # which then surfaces later as a confusing 400 "must make a unique
-    # set" error at creation time instead of a clean "already exists".
+    # Search by name -- match on (parent, name) ONLY, since that's what
+    # Nautobot's real uniqueness constraint actually is (confirmed live:
+    # a 400 "The fields parent, name must make a unique set" error names
+    # exactly those two fields, not location_type). This function used to
+    # ALSO require location_type to match, reasoning that checking
+    # name+type alone (with no parent check at all) could miss a real
+    # pre-existing match under a different parent -- true, but requiring
+    # type as well overcorrected: a location already created under a
+    # DIFFERENT location_type for the exact same (parent, name) -- e.g.
+    # one onboarding pass used site_type 'Campus' for a given city-level
+    # site name, a later pass for the same name/parent used 'Branch' --
+    # made this check report "not found" and attempt a create, which
+    # Nautobot's real constraint then rejected with the exact same
+    # confusing error this comment was originally written to avoid, just
+    # from the opposite direction. Reusing the existing record regardless
+    # of type is the only option that can ever succeed here anyway, since
+    # creating a second (parent, name) pair is never going to work.
     params = {'name': name, 'limit': 50}
     r = client.get('dcim/locations', params=params)
     if r.ok:
@@ -156,9 +167,9 @@ def get_or_create_location(name, type_name, parent_id, status_id, dry_run):
                 (parent_id is None and obj_parent_id is None) or
                 (parent_id is not None and obj_parent_id == parent_id)
             )
-            if (obj.get('name') == name and
-                    obj.get('location_type', {}).get('id') == type_id and
-                    parent_matches):
+            if obj.get('name') == name and parent_matches:
+                if obj.get('location_type', {}).get('id') != type_id:
+                    return obj['id'], f"exists (as a different location_type than expected: '{type_name}')"
                 return obj['id'], 'exists'
 
     if dry_run:
