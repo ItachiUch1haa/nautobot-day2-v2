@@ -807,29 +807,52 @@ function addDiscoveredRow(candidate, vendorSlug, controllerType) {
   var vendorSel = document.getElementById("vendor-" + id);
   if (vendorSel) vendorSel.value = vendorSlug;
 
-  Promise.all([
-    fetch("/api/vendor-platforms/" + vendorSlug + "/ap").then(function(r) { return r.json(); }),
-    fetch("/api/managed-by/" + vendorSlug + "/ap").then(function(r) { return r.json(); })
-  ]).then(function(results) {
-    var platforms = results[0], methods = results[1];
-    var psel = document.getElementById("platform-" + id);
-    if (psel) {
-      psel.innerHTML = platforms.map(function(p) {
-        return "<option value=\"" + p.slug + "\"" + (p.default ? " selected" : "") + ">" + p.label + "</option>";
-      }).join("");
-    }
-    var msel = document.getElementById("mb-" + id);
-    if (msel) {
-      msel.innerHTML = methods.map(function(m) {
-        return "<option value=\"" + m.value + "\">" + m.label + "</option>";
-      }).join("");
-      // managed_by option values are the same strings as controller_type
-      // (e.g. "aruba-central", "mist") by this codebase's own convention.
-      if (controllerType && msel.querySelector("option[value='" + controllerType + "']")) {
-        msel.value = controllerType;
+  // LIVE-FOUND BUG (this feature's first real multi-vendor test): row ids
+  // are only ever reused after a Clear All resets rowId to 0. If an
+  // EARLIER addDiscoveredRow() call for a different vendor (e.g. Aruba
+  // Central) is still waiting on its own platform/managed-by fetch when
+  // the table gets cleared and a new row reuses that same numeric id
+  // (e.g. for Mist), the stale request can resolve LATER and overwrite
+  // this row's dropdowns with the wrong vendor's options -- confirmed
+  // live: Vendor showed "Juniper Networks" (set synchronously, so
+  // unaffected) while Platform/Managed By showed Aruba's ArubaOS/"Aruba
+  // Central" options instead of Juniper's. loadPlatforms()/loadManagedBy()
+  // below already solve exactly this with a per-row generation counter --
+  // reusing those same counters here (platformReqGen/managedByReqGen)
+  // instead of this function's own untracked fetch is the fix, so
+  // whichever request for this id is actually the LATEST one wins,
+  // regardless of network timing.
+  var myPlatGen = (platformReqGen[id]  = (platformReqGen[id]  || 0) + 1);
+  var myMbGen   = (managedByReqGen[id] = (managedByReqGen[id] || 0) + 1);
+
+  fetch("/api/vendor-platforms/" + vendorSlug + "/ap")
+    .then(function(r) { return r.json(); })
+    .then(function(platforms) {
+      if (platformReqGen[id] !== myPlatGen) return;
+      var psel = document.getElementById("platform-" + id);
+      if (psel) {
+        psel.innerHTML = platforms.map(function(p) {
+          return "<option value=\"" + p.slug + "\"" + (p.default ? " selected" : "") + ">" + p.label + "</option>";
+        }).join("");
       }
-    }
-  });
+    });
+
+  fetch("/api/managed-by/" + vendorSlug + "/ap")
+    .then(function(r) { return r.json(); })
+    .then(function(methods) {
+      if (managedByReqGen[id] !== myMbGen) return;
+      var msel = document.getElementById("mb-" + id);
+      if (msel) {
+        msel.innerHTML = methods.map(function(m) {
+          return "<option value=\"" + m.value + "\">" + m.label + "</option>";
+        }).join("");
+        // managed_by option values are the same strings as controller_type
+        // (e.g. "aruba-central", "mist") by this codebase's own convention.
+        if (controllerType && msel.querySelector("option[value='" + controllerType + "']")) {
+          msel.value = controllerType;
+        }
+      }
+    });
 }
 
 var rowId = 0;
