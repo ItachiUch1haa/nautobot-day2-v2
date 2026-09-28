@@ -153,8 +153,10 @@ and unified — see §10).
 | Interaction style | Bulk — CSV upload, one site per run | Conversational — one device/site at a time |
 | Best for | Preparing a whole site's device list in a spreadsheet ahead of time | An engineer or AI agent working interactively, or discovering AP inventory live from a controller |
 | Underlying code | `onboarding/upload_app.py` (UI) → `nautobot_onboard_v2.py` (deploy logic) | `onboarding_mcp/tools_schema.py` (MCP tool implementations) → shares `nautobot_onboard_v2.py`'s `link_shadow_ip_sync()` and `create_tenant.py`'s secrets-group derivation |
-| Controller-managed AP intake | Rows entered manually with IP + "managed by" field, same as any other device | Live discovery: `set_ap_controller` → `scan_ap_controller` (polls the real controller API) → `select_discovered_aps` |
+| Controller-managed AP intake | Manual entry (any vendor), **or** live discovery for Aruba Central only — Step 2's "Cloud Controller (APs)" tab polls `/monitoring/v2/aps` (group-scoped) and populates rows automatically | Live discovery for every controller adapter: `set_ap_controller` → `scan_ap_controller` (polls the real controller API) → `select_discovered_aps` |
 | Status | GA | GA — brought to full parity with the wizard this cycle after several real bugs found and fixed (§10) |
+
+**Web wizard's Aruba Central AP discovery** (added after this document's first version): reuses an existing tenant's already-saved Aruba Central credentials for a new site, or collects+saves them once for a brand-new tenant's first site (`/api/controller/existing`, `/api/controller/test`, `/api/controller/scan` in `upload_app.py`). Two live-found integration bugs fixed during its first real test, both now-standard gotchas worth knowing: (1) Aruba Central rotates the refresh token on *every* exchange, so a Test-then-Scan sequence must persist/forward the rotated value or the second call gets `Invalid refresh_token` — same class of bug as `onboarding_mcp`'s Aruba Central fix (§10), just independently reintroduced here since this is a separate code path; (2) the AP-inventory endpoint filters by Aruba Central's **group** (`group_name` field), not its separate "Site" feature — a `site` query param returns zero results even when APs demonstrably exist, confirmed live against a real tenant. AP-only and Aruba Central-only for now; Mist's own `discover_aps()` equivalent is explicitly unverified (needs a real Mist `site_id`), and switch discovery for any vendor is tracked separately (GitHub issue #6).
 
 Both surfaces produce the exact same end state in Nautobot: a Device with
 a resolved SecretsGroup, a primary IP (shadow IP if the site has
@@ -215,11 +217,13 @@ sequenceDiagram
 
 **Takeaway for future conversations**: if the question is "how do APs
 under a cloud controller get their IP into Nautobot," the answer depends
-on *when*: known at discovery time → handled inline during `deploy_site`;
-not yet known (no DHCP lease yet) → picked up later by the scheduled
-`DiscoverNewDevices`/`ReconcileDeviceIPs` jobs. The web wizard has no
-live-poll step at all — it relies entirely on the scheduled-job fallback
-for controller-managed devices.
+on *when*: known at discovery time → handled inline during `deploy_site`
+(or, in the web wizard, during its own Step 6 deploy after a Step 2
+controller scan); not yet known (no DHCP lease yet) → picked up later by
+the scheduled `DiscoverNewDevices`/`ReconcileDeviceIPs` jobs. The web
+wizard now has its own live-poll step too, but **only for Aruba Central**
+(§3) — for every other vendor it still relies entirely on manual entry
+plus the scheduled-job fallback for controller-managed devices.
 
 ## 5. Day-2 sync engine
 
